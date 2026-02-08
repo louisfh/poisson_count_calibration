@@ -134,7 +134,7 @@ def main():
         max_count=int(np.percentile(data_dict["truth_labeled"], 99)) + 5,
     )
     plt.tight_layout()
-    plt.savefig("count_confusion_matrix.png", dpi=150, bbox_inches="tight")
+    plt.savefig("plots/count_confusion_matrix.png", dpi=150, bbox_inches="tight")
     plt.show()
 
     print("3. Fitting negative binomial multi-site model...")
@@ -149,7 +149,7 @@ def main():
         "site_id_unlabeled": data_dict["site_id_unlabeled"].tolist(),
         "epsilon": data_dict["epsilon"],
     }
-    model = CmdStanModel(stan_file="negative_binomial_multi_site_count_calibration.stan")
+    model = CmdStanModel(stan_file="stan_models/negative_binomial_multi_site_count_calibration.stan")
     fit = model.sample(data=stan_data, seed=456, show_progress=True)
 
     print("4. Estimating site-level maximums...")
@@ -191,10 +191,10 @@ def main():
         axes.flat[j].set_visible(False)
     plt.suptitle("Posterior distribution of site-level maximum count (red = true max; dashed = 90% CI)")
     plt.tight_layout()
-    plt.savefig("site_max_posteriors.png", dpi=150, bbox_inches="tight")
+    plt.savefig("plots/site_max_posteriors.png", dpi=150, bbox_inches="tight")
     plt.show()
 
-    print("Done. Saved count_confusion_matrix.png and site_max_posteriors.png.")
+    print("Done. Saved plots/count_confusion_matrix.png and plots/site_max_posteriors.png.")
 
 
 if __name__ == "__main__":

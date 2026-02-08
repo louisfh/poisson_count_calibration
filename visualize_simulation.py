@@ -4,7 +4,7 @@ Visualize simulation results: MSE, 90% CI width, and coverage vs n_labeled for e
 Produces two plots: one for importance sampling (IS) labeling, one for random labeling.
 
 Usage:
-  python visualize_simulation.py [--results simulation_ppi_discount_poisson_results.json] [--data ...] [--output figure.png]
+  python visualize_simulation.py [--results model_outputs/simulation_ppi_discount_poisson_results.json] [--data data/...] [--output plots/figure.png]
 """
 
 import argparse
@@ -40,17 +40,17 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize simulation: MSE, CI width, coverage vs n_labeled.")
     parser.add_argument(
         "--results",
-        default="simulation_ppi_discount_poisson_results.json",
+        default="model_outputs/simulation_ppi_discount_poisson_results.json",
         help="Path to simulation results JSON",
     )
     parser.add_argument(
         "--data",
-        default="2025-11-19_discount_f_g.json",
+        default="data/2025-11-19_discount_f_g.json",
         help="Path to f/g data JSON (for true mean)",
     )
     parser.add_argument(
         "--output",
-        default="simulation_visualization.png",
+        default="plots/simulation_visualization.png",
         help="Output figure path",
     )
     args = parser.parse_args()
