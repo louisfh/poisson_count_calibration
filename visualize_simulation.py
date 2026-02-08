@@ -68,9 +68,18 @@ def main():
         by_labeling = {"importance_sampling": results["by_n_labeled"]}
         n_labeled_levels = sorted(int(k) for k in results["by_n_labeled"].keys())
 
-    methods = ["poisson_calibration", "ppi", "discount"]
-    colors = ["C0", "C1", "C2"]  # discount and sample mean both use C2
+    all_methods = ["poisson_calibration", "poisson_single_parameter", "ppi", "discount"]
+    method_colors = {"poisson_calibration": "C0", "poisson_single_parameter": "C3", "ppi": "C1", "discount": "C2"}
+    method_labels_map = {
+        "importance_sampling": ["Poisson calibration", "Single-parameter Poisson", "PPI", "DISCount"],
+        "random": ["Poisson calibration", "Single-parameter Poisson", "PPI", "Sample mean"],
+    }
     strategy_titles = {"importance_sampling": "Importance sampling (q ∝ g)", "random": "Random labeling"}
+
+    # Detect which methods exist in results (support legacy results without poisson_single_parameter)
+    sample_run = next(iter(by_labeling[strategies[0]][str(n_labeled_levels[0])]))
+    methods = [m for m in all_methods if m in sample_run]
+    colors = [method_colors[m] for m in methods]
 
     x = np.array(n_labeled_levels)
     n_rows = len(strategies)
@@ -80,12 +89,7 @@ def main():
 
     for row, strategy in enumerate(strategies):
         by_n_labeled = by_labeling[strategy]
-        # Random labeling: show "Sample mean" instead of "DISCount" (same color C2)
-        method_labels = (
-            ["Poisson calibration", "PPI", "Sample mean"]
-            if strategy == "random"
-            else ["Poisson calibration", "PPI", "DISCount"]
-        )
+        labels = [method_labels_map[strategy][all_methods.index(m)] for m in methods]
         mse_by_n = {m: [] for m in methods}
         ci_width_by_n = {m: [] for m in methods}
         coverage_by_n = {m: [] for m in methods}
@@ -100,7 +104,7 @@ def main():
 
         # --- MSE ---
         ax = axes[row, 0]
-        for m, lab, c in zip(methods, method_labels, colors):
+        for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, mse_by_n[m], "o-", label=lab, color=c)
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("MSE")
@@ -111,7 +115,7 @@ def main():
 
         # --- 90% CI width ---
         ax = axes[row, 1]
-        for m, lab, c in zip(methods, method_labels, colors):
+        for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, ci_width_by_n[m], "o-", label=lab, color=c)
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("90% CI width (mean)")
@@ -122,7 +126,7 @@ def main():
 
         # --- Coverage ---
         ax = axes[row, 2]
-        for m, lab, c in zip(methods, method_labels, colors):
+        for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, coverage_by_n[m], "o-", label=lab, color=c)
         ax.axhline(0.9, color="black", ls="--", lw=1.5, label="Nominal 90%")
         ax.set_xlabel("n_labeled")
@@ -140,13 +144,9 @@ def main():
     print(f"True mean: {true_mean:.3f}")
     for strategy in strategies:
         by_n_labeled = by_labeling[strategy]
-        method_labels = (
-            ["Poisson calibration", "PPI", "Sample mean"]
-            if strategy == "random"
-            else ["Poisson calibration", "PPI", "DISCount"]
-        )
+        labels = [method_labels_map[strategy][all_methods.index(m)] for m in methods]
         print(f"  [{strategy_titles.get(strategy, strategy)}]")
-        for m, lab in zip(methods, method_labels):
+        for m, lab in zip(methods, labels):
             print(f"    {lab}:")
             for n in n_labeled_levels:
                 idx = n_labeled_levels.index(n)

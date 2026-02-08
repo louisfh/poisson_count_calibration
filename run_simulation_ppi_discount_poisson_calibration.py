@@ -8,14 +8,41 @@ Poisson calibration, PPI, and DISCount share the same labeled data per run.
 
 Usage:
   python run_simulation_ppi_discount_poisson_calibration.py [--output model_outputs/RESULTS.json]
+  python run_simulation_ppi_discount_poisson_calibration.py --stan-output-dir model_outputs/stan_fits
+
+Results JSON always includes Stan diagnostics (num_divergent, rhat per parameter). Use
+--stan-output-dir to also save per-run Stan CSV outputs for later investigation.
 """
 
 import argparse
 import json
+import os
 import numpy as np
 import arviz as az
 from cmdstanpy import CmdStanModel
 from ppi_py import ppi_mean_pointestimate, ppi_mean_ci
+
+
+def _stan_diagnostics(fit):
+    """Extract num_divergent and per-parameter Rhat from a CmdStanMCMC fit."""
+    # Divergent transitions (sum over all chains and iterations)
+    try:
+        diag = fit.sampler_diagnostics()
+        num_divergent = int(np.sum(diag["divergent__"]))
+    except Exception:
+        num_divergent = None
+
+    # Rhat per parameter from summary
+    try:
+        summary_df = fit.summary()
+        rhat_col = "R_hat" if "R_hat" in summary_df.columns else "rhat"
+        rhat = summary_df[rhat_col].dropna().astype(float).to_dict()
+        # Ensure keys are strings for JSON
+        rhat = {str(k): float(v) for k, v in rhat.items()}
+    except Exception:
+        rhat = None
+
+    return {"num_divergent": num_divergent, "rhat": rhat}
 
 
 def load_data(path: str = "data/2025-11-19_discount_f_g.json"):
@@ -38,6 +65,8 @@ def run_one_split(
     n_boot: int,
     rng: np.random.Generator,
     labeling_strategy: str,
+    stan_output_dir: str | None = None,
+    repeat: int = 0,
 ):
     """Run Poisson calibration, PPI, and DISCount (or sample mean) for one labeled/unlabeled split.
     labeling_strategy: "importance_sampling" (q ∝ g) or "random" (uniform). DISCount uses
@@ -64,20 +93,40 @@ def run_one_split(
         "predicted_counts_unlabeled": g_unlabeled,
         "epsilon": epsilon,
     }
-    fit = model.sample(data=data_stan, seed=int(rng.integers(1, 2**31)), show_progress=False)
+    out_dir_poisson = None
+    out_dir_single = None
+    if stan_output_dir:
+        run_tag = f"n{n_labeled}_rep{repeat}_{labeling_strategy}"
+        out_dir_poisson = os.path.join(stan_output_dir, "poisson_count_calibration", run_tag)
+        out_dir_single = os.path.join(stan_output_dir, "poisson_single_parameter", run_tag)
+        os.makedirs(out_dir_poisson, exist_ok=True)
+        os.makedirs(out_dir_single, exist_ok=True)
+
+    fit = model.sample(
+        data=data_stan,
+        seed=int(rng.integers(1, 2**31)),
+        show_progress=False,
+        output_dir=out_dir_poisson if out_dir_poisson else None,
+    )
     mean_rays = fit.stan_variable("mean_rays_per_image")
     point_poisson = float(mean_rays.mean())
     ci_poisson_lo, ci_poisson_hi = map(float, az.hdi(mean_rays, hdi_prob=0.9))
+    diag_poisson = _stan_diagnostics(fit)
 
     # --- Poisson single-parameter (alpha only) ---
+    data_stan_single = {k: v for k, v in data_stan.items() if k != "epsilon"}
     fit_single = model_single_parameter.sample(
-        data=data_stan, seed=int(rng.integers(1, 2**31)), show_progress=False
+        data=data_stan_single,
+        seed=int(rng.integers(1, 2**31)),
+        show_progress=False,
+        output_dir=out_dir_single if out_dir_single else None,
     )
     mean_rays_single = fit_single.stan_variable("mean_rays_per_image")
     point_poisson_single = float(mean_rays_single.mean())
     ci_poisson_single_lo, ci_poisson_single_hi = map(
         float, az.hdi(mean_rays_single, hdi_prob=0.9)
     )
+    diag_single = _stan_diagnostics(fit_single)
 
     # --- PPI ---
     mean_ppi = ppi_mean_pointestimate(
@@ -114,7 +163,7 @@ def run_one_split(
     point_discount = float(mean_discount)
     ci_discount_lo, ci_discount_hi = map(float, az.hdi(np.array(boot_means), hdi_prob=0.9))
 
-    return {
+    result = {
         "poisson_calibration": {
             "point_estimate": point_poisson,
             "ci_90_lo": ci_poisson_lo,
@@ -136,6 +185,16 @@ def run_one_split(
             "ci_90_hi": ci_discount_hi,
         },
     }
+    result["stan_diagnostics"] = {
+        "poisson_calibration": diag_poisson,
+        "poisson_single_parameter": diag_single,
+    }
+    if out_dir_poisson is not None:
+        result["stan_output_dirs"] = {
+            "poisson_calibration": out_dir_poisson,
+            "poisson_single_parameter": out_dir_single,
+        }
+    return result
 
 
 def main():
@@ -160,6 +219,11 @@ def main():
     parser.add_argument("--data", default="data/2025-11-19_discount_f_g.json", help="Path to f/g JSON data")
     parser.add_argument("--seed", type=int, default=42, help="RNG seed for reproducibility")
     parser.add_argument("--n-boot", type=int, default=1000, help="Bootstrap samples for DISCount CI")
+    parser.add_argument(
+        "--stan-output-dir",
+        default=None,
+        help="Directory to save Stan MCMC CSV outputs per run (for later investigation). Default: do not save.",
+    )
     args = parser.parse_args()
 
     f, g = load_data(args.data)
@@ -172,6 +236,10 @@ def main():
 
     n_labeled_levels = [10 * (i + 1) for i in range(args.n_labeled_levels)]
     total_runs = args.n_labeled_levels * args.n_repeats * 2  # IS + random
+
+    if args.stan_output_dir:
+        os.makedirs(args.stan_output_dir, exist_ok=True)
+        print(f"Stan outputs will be saved to: {args.stan_output_dir}")
 
     print(f"Data: N={N}")
     print(f"n_labeled levels: {n_labeled_levels}")
@@ -201,6 +269,7 @@ def main():
             rec_is = run_one_split(
                 f, g, idx_labeled_is, n_labeled, n_unlabeled, model, model_single_parameter,
                 epsilon, args.n_boot, rng_is, labeling_strategy="importance_sampling",
+                stan_output_dir=args.stan_output_dir, repeat=repeat,
             )
             rec_is["seed_labeling"] = seed_labeling_is
             by_labeling["importance_sampling"][key].append(rec_is)
@@ -210,6 +279,7 @@ def main():
             rec_rand = run_one_split(
                 f, g, idx_labeled_rand, n_labeled, n_unlabeled, model, model_single_parameter,
                 epsilon, args.n_boot, rng_rand, labeling_strategy="random",
+                stan_output_dir=args.stan_output_dir, repeat=repeat,
             )
             rec_rand["seed_labeling"] = seed_labeling_rand
             by_labeling["random"][key].append(rec_rand)
