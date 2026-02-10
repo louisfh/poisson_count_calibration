@@ -134,7 +134,7 @@ def main():
         max_count=int(np.percentile(data_dict["truth_labeled"], 99)) + 5,
     )
     plt.tight_layout()
-    plt.savefig("plots/count_confusion_matrix.png", dpi=150, bbox_inches="tight")
+    plt.savefig("plots/simulated_data_count_confusion_matrix.png", dpi=150, bbox_inches="tight")
     plt.show()
 
     print("3. Fitting negative binomial multi-site model...")
@@ -194,7 +194,7 @@ def main():
     plt.savefig("plots/site_max_posteriors.png", dpi=150, bbox_inches="tight")
     plt.show()
 
-    print("Done. Saved plots/count_confusion_matrix.png and plots/site_max_posteriors.png.")
+    print("Done. Saved plots/simulated_data_count_confusion_matrix.png and plots/site_max_posteriors.png.")
 
 
 if __name__ == "__main__":

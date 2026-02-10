@@ -60,7 +60,7 @@ def run_one_split(
     n_labeled: int,
     n_unlabeled: int,
     model: CmdStanModel,
-    model_single_parameter: CmdStanModel,
+    model_single_parameter: CmdStanModel | None,  # commented out; pass None
     epsilon: float,
     n_boot: int,
     rng: np.random.Generator,
@@ -94,13 +94,13 @@ def run_one_split(
         "epsilon": epsilon,
     }
     out_dir_poisson = None
-    out_dir_single = None
+    # out_dir_single = None
     if stan_output_dir:
         run_tag = f"n{n_labeled}_rep{repeat}_{labeling_strategy}"
         out_dir_poisson = os.path.join(stan_output_dir, "poisson_count_calibration", run_tag)
-        out_dir_single = os.path.join(stan_output_dir, "poisson_single_parameter", run_tag)
+        # out_dir_single = os.path.join(stan_output_dir, "poisson_single_parameter", run_tag)
         os.makedirs(out_dir_poisson, exist_ok=True)
-        os.makedirs(out_dir_single, exist_ok=True)
+        # os.makedirs(out_dir_single, exist_ok=True)
 
     fit = model.sample(
         data=data_stan,
@@ -113,31 +113,45 @@ def run_one_split(
     ci_poisson_lo, ci_poisson_hi = map(float, az.hdi(mean_rays, hdi_prob=0.9))
     diag_poisson = _stan_diagnostics(fit)
 
-    # --- Poisson single-parameter (alpha only) ---
-    data_stan_single = {k: v for k, v in data_stan.items() if k != "epsilon"}
-    fit_single = model_single_parameter.sample(
-        data=data_stan_single,
-        seed=int(rng.integers(1, 2**31)),
-        show_progress=False,
-        output_dir=out_dir_single if out_dir_single else None,
-    )
-    mean_rays_single = fit_single.stan_variable("mean_rays_per_image")
-    point_poisson_single = float(mean_rays_single.mean())
-    ci_poisson_single_lo, ci_poisson_single_hi = map(
-        float, az.hdi(mean_rays_single, hdi_prob=0.9)
-    )
-    diag_single = _stan_diagnostics(fit_single)
+    # --- Poisson single-parameter (alpha only) --- [commented out]
+    # data_stan_single = {k: v for k, v in data_stan.items() if k != "epsilon"}
+    # fit_single = model_single_parameter.sample(
+    #     data=data_stan_single,
+    #     seed=int(rng.integers(1, 2**31)),
+    #     show_progress=False,
+    #     output_dir=out_dir_single if out_dir_single else None,
+    # )
+    # mean_rays_single = fit_single.stan_variable("mean_rays_per_image")
+    # point_poisson_single = float(mean_rays_single.mean())
+    # ci_poisson_single_lo, ci_poisson_single_hi = map(
+    #     float, az.hdi(mean_rays_single, hdi_prob=0.9)
+    # )
+    # diag_single = _stan_diagnostics(fit_single)
 
     # --- PPI ---
+    # Under importance sampling, use Inverse Probability Weighting so PPI accounts for biased sampling.
+    # See tree_cover_ptd.ipynb Example 4: w = 1/p for labeled, w_unlabeled = 1/(1-p) for unlabeled.
+    if labeling_strategy == "importance_sampling":
+        w = 1.0 / np.clip(q_labeled, 1e-10, None)
+        q_unlabeled = q[idx_unlabeled]
+        w_unlabeled = 1.0 / np.clip(1.0 - q_unlabeled, 1e-10, None)
+    else:
+        w = None
+        w_unlabeled = None
+
     mean_ppi = ppi_mean_pointestimate(
         Y=f_labeled.astype(np.float64),
         Yhat=g_labeled,
         Yhat_unlabeled=g_unlabeled,
+        w=w,
+        w_unlabeled=w_unlabeled,
     )
     ci_ppi = ppi_mean_ci(
         Y=f_labeled.astype(np.float64),
         Yhat=g_labeled,
         Yhat_unlabeled=g_unlabeled,
+        w=w,
+        w_unlabeled=w_unlabeled,
         alpha=0.1,
     )
     point_ppi = float(np.atleast_1d(mean_ppi)[0])
@@ -169,11 +183,11 @@ def run_one_split(
             "ci_90_lo": ci_poisson_lo,
             "ci_90_hi": ci_poisson_hi,
         },
-        "poisson_single_parameter": {
-            "point_estimate": point_poisson_single,
-            "ci_90_lo": ci_poisson_single_lo,
-            "ci_90_hi": ci_poisson_single_hi,
-        },
+        # "poisson_single_parameter": {
+        #     "point_estimate": point_poisson_single,
+        #     "ci_90_lo": ci_poisson_single_lo,
+        #     "ci_90_hi": ci_poisson_single_hi,
+        # },
         "ppi": {
             "point_estimate": point_ppi,
             "ci_90_lo": ci_ppi_lo,
@@ -187,12 +201,12 @@ def run_one_split(
     }
     result["stan_diagnostics"] = {
         "poisson_calibration": diag_poisson,
-        "poisson_single_parameter": diag_single,
+        # "poisson_single_parameter": diag_single,
     }
     if out_dir_poisson is not None:
         result["stan_output_dirs"] = {
             "poisson_calibration": out_dir_poisson,
-            "poisson_single_parameter": out_dir_single,
+            # "poisson_single_parameter": out_dir_single,
         }
     return result
 
@@ -248,7 +262,7 @@ def main():
     print("Running simulation...")
 
     model = CmdStanModel(stan_file="stan_models/poisson_count_calibration.stan")
-    model_single_parameter = CmdStanModel(stan_file="stan_models/poisson_single_parameter.stan")
+    # model_single_parameter = CmdStanModel(stan_file="stan_models/poisson_single_parameter.stan")
     by_labeling = {"importance_sampling": {}, "random": {}}
 
     for n_labeled in n_labeled_levels:
@@ -267,7 +281,7 @@ def main():
             seed_labeling_is = args.seed + n_labeled * 1000 + repeat
             idx_labeled_is = rng_is.choice(N, size=n_labeled, replace=False, p=q)
             rec_is = run_one_split(
-                f, g, idx_labeled_is, n_labeled, n_unlabeled, model, model_single_parameter,
+                f, g, idx_labeled_is, n_labeled, n_unlabeled, model, None,  # model_single_parameter
                 epsilon, args.n_boot, rng_is, labeling_strategy="importance_sampling",
                 stan_output_dir=args.stan_output_dir, repeat=repeat,
             )
@@ -277,7 +291,7 @@ def main():
             seed_labeling_rand = args.seed + n_labeled * 2000 + repeat
             idx_labeled_rand = rng_rand.choice(N, size=n_labeled, replace=False)
             rec_rand = run_one_split(
-                f, g, idx_labeled_rand, n_labeled, n_unlabeled, model, model_single_parameter,
+                f, g, idx_labeled_rand, n_labeled, n_unlabeled, model, None,  # model_single_parameter
                 epsilon, args.n_boot, rng_rand, labeling_strategy="random",
                 stan_output_dir=args.stan_output_dir, repeat=repeat,
             )
@@ -300,7 +314,7 @@ def main():
     # Summary by labeling strategy, method, and n_labeled
     for strategy in ["importance_sampling", "random"]:
         print(f"  [{strategy}]")
-        for method in ["poisson_calibration", "poisson_single_parameter", "ppi", "discount"]:
+        for method in ["poisson_calibration", "ppi", "discount"]:  # "poisson_single_parameter" commented out
             print(f"    {method}:")
             for n_labeled in n_labeled_levels:
                 key = str(n_labeled)

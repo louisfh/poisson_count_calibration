@@ -42,4 +42,14 @@ generated quantities {
   }
   // Average number of rays per image (population mean rate) — for 90% CI
   real mean_rays_per_image = (sum(lambda_labeled) + sum(lambda_unlabeled)) / (N_labeled + N_unlabeled);
+
+  // also get the maximum count in any image (both labeled and unlabeled)
+  int<lower=0> max_count;
+  max_count = 0;
+  for (i in 1:N_labeled) {
+    max_count = max(max_count, true_counts_labeled[i]);
+  }
+  for (i in 1:N_unlabeled) {
+    max_count = max(max_count, true_counts_unlabeled_rep[i]);
+  }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Visualize simulation results: MSE, 90% CI width, and coverage vs n_labeled for each method.
+Visualize simulation results: MSE, bias, 90% CI width, and coverage vs n_labeled for each method.
 Produces two plots: one for importance sampling (IS) labeling, one for random labeling.
 
 Usage:
@@ -30,14 +30,15 @@ def compute_metrics(runs: list, method: str, true_mean: float):
     lo = np.array([r[method]["ci_90_lo"] for r in runs])
     hi = np.array([r[method]["ci_90_hi"] for r in runs])
     mse = np.mean((pts - true_mean) ** 2)
+    bias = np.mean(pts) - true_mean
     widths = hi - lo
     mean_width = np.mean(widths)
     coverage = np.mean((lo <= true_mean) & (true_mean <= hi))
-    return {"mse": mse, "mean_ci_width": mean_width, "coverage": coverage}
+    return {"mse": mse, "bias": bias, "mean_ci_width": mean_width, "coverage": coverage}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize simulation: MSE, CI width, coverage vs n_labeled.")
+    parser = argparse.ArgumentParser(description="Visualize simulation: MSE, bias, CI width, coverage vs n_labeled.")
     parser.add_argument(
         "--results",
         default="model_outputs/simulation_ppi_discount_poisson_results.json",
@@ -68,22 +69,23 @@ def main():
         by_labeling = {"importance_sampling": results["by_n_labeled"]}
         n_labeled_levels = sorted(int(k) for k in results["by_n_labeled"].keys())
 
-    all_methods = ["poisson_calibration", "poisson_single_parameter", "ppi", "discount"]
-    method_colors = {"poisson_calibration": "C0", "poisson_single_parameter": "C3", "ppi": "C1", "discount": "C2"}
+    all_methods = ["poisson_calibration", "ppi", "discount"]
+    method_colors = {"poisson_calibration": "C0", "ppi": "C1", "discount": "C2"}
     method_labels_map = {
-        "importance_sampling": ["Poisson calibration", "Single-parameter Poisson", "PPI", "DISCount"],
-        "random": ["Poisson calibration", "Single-parameter Poisson", "PPI", "Sample mean"],
+        "importance_sampling": ["Poisson calibration", "PPI", "DISCount"],
+        "random": ["Poisson calibration", "PPI", "Sample mean"],
     }
     strategy_titles = {"importance_sampling": "Importance sampling (q ∝ g)", "random": "Random labeling"}
+    strategy_label_col = {"importance_sampling": "Importance sampling", "random": "Random labeling"}
 
-    # Detect which methods exist in results (support legacy results without poisson_single_parameter)
+    # Detect which methods exist in results (support legacy results with fewer methods)
     sample_run = next(iter(by_labeling[strategies[0]][str(n_labeled_levels[0])]))
     methods = [m for m in all_methods if m in sample_run]
     colors = [method_colors[m] for m in methods]
 
     x = np.array(n_labeled_levels)
     n_rows = len(strategies)
-    fig, axes = plt.subplots(n_rows, 3, figsize=(12, 4 * n_rows))
+    fig, axes = plt.subplots(n_rows, 5, figsize=(18, 4 * n_rows), sharex="col", sharey="col")
     if n_rows == 1:
         axes = axes[np.newaxis, :]
 
@@ -91,6 +93,7 @@ def main():
         by_n_labeled = by_labeling[strategy]
         labels = [method_labels_map[strategy][all_methods.index(m)] for m in methods]
         mse_by_n = {m: [] for m in methods}
+        bias_by_n = {m: [] for m in methods}
         ci_width_by_n = {m: [] for m in methods}
         coverage_by_n = {m: [] for m in methods}
 
@@ -99,39 +102,57 @@ def main():
             for m in methods:
                 met = compute_metrics(runs, m, true_mean)
                 mse_by_n[m].append(met["mse"])
+                bias_by_n[m].append(met["bias"])
                 ci_width_by_n[m].append(met["mean_ci_width"])
                 coverage_by_n[m].append(met["coverage"])
 
-        # --- MSE ---
+        # --- Left column: approach name only ---
         ax = axes[row, 0]
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, strategy_label_col.get(strategy, strategy), transform=ax.transAxes,
+                fontsize=12, fontweight="bold", ha="center", va="center")
+
+        # --- MSE ---
+        ax = axes[row, 1]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, mse_by_n[m], "o-", label=lab, color=c)
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("MSE")
-        ax.set_title(f"{strategy_titles.get(strategy, strategy)} — Mean squared error")
-        ax.set_ylim(0, None)
+        ax.set_title("Mean squared error")
+        ax.set_yscale("log")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+        # --- Bias ---
+        ax = axes[row, 2]
+        for m, lab, c in zip(methods, labels, colors):
+            ax.plot(x, bias_by_n[m], "o-", label=lab, color=c)
+        ax.axhline(0, color="black", ls="--", lw=1, label="Unbiased")
+        ax.set_xlabel("n_labeled")
+        ax.set_ylabel("Bias")
+        ax.set_title("Bias")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
         # --- 90% CI width ---
-        ax = axes[row, 1]
+        ax = axes[row, 3]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, ci_width_by_n[m], "o-", label=lab, color=c)
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("90% CI width (mean)")
-        ax.set_title(f"{strategy_titles.get(strategy, strategy)} — 90% CI width")
-        ax.set_ylim(0, None)
+        ax.set_title("90% CI width")
+        ax.set_yscale("log")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
         # --- Coverage ---
-        ax = axes[row, 2]
+        ax = axes[row, 4]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, coverage_by_n[m], "o-", label=lab, color=c)
         ax.axhline(0.9, color="black", ls="--", lw=1.5, label="Nominal 90%")
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("Coverage")
-        ax.set_title(f"{strategy_titles.get(strategy, strategy)} — 90% CI coverage")
+        ax.set_title("90% CI coverage")
         ax.set_ylim(0, 1.05)
         ax.legend()
         ax.grid(True, alpha=0.3)
@@ -152,7 +173,7 @@ def main():
                 idx = n_labeled_levels.index(n)
                 runs = by_n_labeled[str(n)]
                 met = compute_metrics(runs, m, true_mean)
-                print(f"      n={n}: MSE={met['mse']:.4f}, CI width={met['mean_ci_width']:.3f}, coverage={met['coverage']:.2%}")
+                print(f"      n={n}: MSE={met['mse']:.4f}, bias={met['bias']:.4f}, CI width={met['mean_ci_width']:.3f}, coverage={met['coverage']:.2%}")
 
 
 if __name__ == "__main__":
