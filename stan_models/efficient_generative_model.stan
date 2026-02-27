@@ -104,4 +104,5 @@ generated quantities {
 
   real mean_true_count = (sum(true_counts_labeled) + sum(true_counts_unlabeled_rep)) / (N_labeled + N_unlabeled);
   real mean_predicted_count = mu * detection_p + avg_false_pos;
+  real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));
 }

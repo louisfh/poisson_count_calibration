@@ -44,12 +44,5 @@ generated quantities {
   real mean_rays_per_image = (sum(true_counts_labeled) + sum(true_counts_unlabeled_rep)) / (N_labeled + N_unlabeled);
 
   // also get the maximum count in any image (both labeled and unlabeled)
-  int<lower=0> max_count;
-  max_count = 0;
-  for (i in 1:N_labeled) {
-    max_count = max(max_count, true_counts_labeled[i]);
-  }
-  for (i in 1:N_unlabeled) {
-    max_count = max(max_count, true_counts_unlabeled_rep[i]);
-  }
+  real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));
 }

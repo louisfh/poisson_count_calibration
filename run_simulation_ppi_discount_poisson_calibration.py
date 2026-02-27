@@ -168,21 +168,6 @@ def run_one_split(
         ci_generative_lo, ci_generative_hi = map(float, az.hdi(mean_true_count, hdi_prob=0.9))
         diag_generative = _stan_diagnostics(fit_gen, rhat_threshold=rhat_threshold)
 
-    # --- Poisson single-parameter (alpha only) --- [commented out]
-    # data_stan_single = {k: v for k, v in data_stan.items() if k != "epsilon"}
-    # fit_single = model_single_parameter.sample(
-    #     data=data_stan_single,
-    #     seed=int(rng.integers(1, 2**31)),
-    #     show_progress=False,
-    #     output_dir=out_dir_single if out_dir_single else None,
-    # )
-    # mean_rays_single = fit_single.stan_variable("mean_rays_per_image")
-    # point_poisson_single = float(mean_rays_single.mean())
-    # ci_poisson_single_lo, ci_poisson_single_hi = map(
-    #     float, az.hdi(mean_rays_single, hdi_prob=0.9)
-    # )
-    # diag_single = _stan_diagnostics(fit_single)
-
     # --- PPI ---
     # Under importance sampling, use Inverse Probability Weighting so PPI accounts for biased sampling.
     # See tree_cover_ptd.ipynb Example 4: w = 1/p for labeled, w_unlabeled = 1/(1-p) for unlabeled.
