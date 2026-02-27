@@ -17,6 +17,12 @@ data {
   int<lower=0> max_unlabeled_in_likelihood;
 }
 
+transformed data {
+  /// INCLUDE IN ALL MODELS
+  int total_count_labeled = sum(true_counts_labeled);
+  int total_N = N_labeled + N_unlabeled;
+}
+
 parameters {
   real<lower=1e-6> mu;                // mean true count (ecological)
   real<lower=1e-6, upper=1e6> phi; // neg_binomial_2 dispersion (larger = closer to Poisson); lower avoids gamma(0)
@@ -90,6 +96,7 @@ generated quantities {
   }
 
   // Population mean: labeled data (known) + realized unlabeled predictions / total N
-  real mean_true_count = (sum(true_counts_labeled) + sum(true_counts_unlabeled_rep)) / (N_labeled + N_unlabeled);
+  real mean_true_count = (total_count_labeled + sum(true_counts_unlabeled_rep)) * 1.0 / total_N;
   real mean_predicted_count = mu * detection_p + avg_false_pos;
+  real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));
 }

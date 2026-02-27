@@ -16,6 +16,11 @@ data {
 }
 
 transformed data {
+  /// INCLUDE IN ALL MODELS
+  int total_count_labeled = sum(true_counts_labeled);
+  int total_N_unlabeled = N_labeled + N_unlabeled;
+
+  // THE REST
   int n_unlabeled_used = max_unlabeled_in_likelihood > 0
     ? min(N_unlabeled, max_unlabeled_in_likelihood) : N_unlabeled;
   array[n_unlabeled_used] int sorted_pred;
@@ -101,8 +106,8 @@ generated quantities {
     true_counts_unlabeled_rep[i] = tc_rep;
     predicted_counts_unlabeled_rep[i] = tp_rep + fp_rep;
   }
-
-  real mean_true_count = (sum(true_counts_labeled) + sum(true_counts_unlabeled_rep)) / (N_labeled + N_unlabeled);
+  real total_count = total_count_labeled + sum(true_counts_unlabeled_rep);
+  real mean_true_count = total_count / (N_labeled + N_unlabeled);
   real mean_predicted_count = mu * detection_p + avg_false_pos;
   real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));
 }

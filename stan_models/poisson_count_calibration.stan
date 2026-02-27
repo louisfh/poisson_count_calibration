@@ -7,6 +7,12 @@ data {
   real<lower=0> epsilon; // small constant to avoid log(0)
 }
 
+transformed data {
+  /// INCLUDE IN ALL MODELS
+  int total_count_labeled = sum(true_counts_labeled);
+  int total_N = N_labeled + N_unlabeled;
+}
+
 parameters {
   real alpha;
   real<lower=0> beta; // constrained to be positive because otherwise your model is worse than chance lol
@@ -41,7 +47,7 @@ generated quantities {
     true_counts_unlabeled_rep[i] = poisson_rng(lambda_unlabeled[i]);
   }
   // Population mean: labeled data (known) + realized unlabeled predictions / total N
-  real mean_rays_per_image = (sum(true_counts_labeled) + sum(true_counts_unlabeled_rep)) / (N_labeled + N_unlabeled);
+  real mean_rays_per_image = (total_count_labeled + sum(true_counts_unlabeled_rep)) * 1.0 / total_N;
 
   // also get the maximum count in any image (both labeled and unlabeled)
   real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));

@@ -27,7 +27,7 @@ from datetime import datetime
 import numpy as np
 import arviz as az
 from cmdstanpy import CmdStanModel
-from ppi_py import ppi_mean_pointestimate, ppi_mean_ci
+from ppi_py import ppi_mean_pointestimate, ppi_mean_ci, ppi_quantile_ci
 
 
 def _stan_diagnostics(fit, rhat_threshold: float = 1.01):
@@ -97,6 +97,11 @@ def run_one_split(
     f_unlabeled = f[idx_unlabeled]
     g_unlabeled = g[idx_unlabeled]
 
+    # True max counts (ground truth for max estimation)
+    true_max_labeled = int(f_labeled.max())
+    true_max_unlabeled = int(f_unlabeled.max())
+    true_max_all = int(f.max())
+
     N = len(f)
     # Small constant so q = (g + ...)/sum(...) is defined when g=0 (importance weights).
     g_floor_for_q = 1e-6
@@ -132,12 +137,18 @@ def run_one_split(
     mean_rays = fit.stan_variable("mean_rays_per_image")
     point_poisson = float(mean_rays.mean())
     ci_poisson_lo, ci_poisson_hi = map(float, az.hdi(mean_rays, hdi_prob=0.9))
+    max_count_poisson = fit.stan_variable("max_count")
+    point_poisson_max = float(max_count_poisson.mean())
+    ci_poisson_max_lo, ci_poisson_max_hi = map(float, az.hdi(max_count_poisson, hdi_prob=0.9))
     diag_poisson = _stan_diagnostics(fit, rhat_threshold=rhat_threshold)
 
     # --- Generative model (NegBinomial2 + detection + false positives) ---
     point_generative = None
     ci_generative_lo = None
     ci_generative_hi = None
+    point_generative_max = None
+    ci_generative_max_lo = None
+    ci_generative_max_hi = None
     diag_generative = None
     out_dir_generative = None
     if model_generative is not None:
@@ -166,6 +177,9 @@ def run_one_split(
         mean_true_count = fit_gen.stan_variable("mean_true_count")
         point_generative = float(mean_true_count.mean())
         ci_generative_lo, ci_generative_hi = map(float, az.hdi(mean_true_count, hdi_prob=0.9))
+        max_count_gen = fit_gen.stan_variable("max_count")
+        point_generative_max = float(max_count_gen.mean())
+        ci_generative_max_lo, ci_generative_max_hi = map(float, az.hdi(max_count_gen, hdi_prob=0.9))
         diag_generative = _stan_diagnostics(fit_gen, rhat_threshold=rhat_threshold)
 
     # --- PPI ---
@@ -198,6 +212,21 @@ def run_one_split(
     ci_ppi_lo = float(np.atleast_1d(ci_ppi[0])[0])
     ci_ppi_hi = float(np.atleast_1d(ci_ppi[1])[0])
 
+    # PPI max estimate via quantile q=0.99999 (hacky max approximation)
+    quantile_ppi_max = ppi_quantile_ci(
+        Y=f_labeled.astype(np.float64),
+        Yhat=g_labeled,
+        Yhat_unlabeled=g_unlabeled,
+        q=0.99999,
+        alpha=0.1,
+        exact_grid=False,
+        w=w,
+        w_unlabeled=w_unlabeled,
+    )
+    ci_ppi_max_lo = float(np.atleast_1d(quantile_ppi_max[0])[0])
+    ci_ppi_max_hi = float(np.atleast_1d(quantile_ppi_max[1])[0])
+    point_ppi_max = float(0.5 * (ci_ppi_max_lo + ci_ppi_max_hi))
+
     # --- DISCount (importance sampling) or sample mean (random labeling) ---
     if labeling_strategy == "importance_sampling":
         F_hat_discount = (1 / n_labeled) * (f_labeled / q_labeled).sum()
@@ -218,10 +247,18 @@ def run_one_split(
     ci_discount_lo, ci_discount_hi = map(float, az.hdi(np.array(boot_means), hdi_prob=0.9))
 
     result = {
+        "true_max_labeled": true_max_labeled,
+        "true_max_unlabeled": true_max_unlabeled,
+        "true_max_all": true_max_all,
         "poisson_calibration": {
             "point_estimate": point_poisson,
             "ci_90_lo": ci_poisson_lo,
             "ci_90_hi": ci_poisson_hi,
+            "max": {
+                "point_estimate": point_poisson_max,
+                "ci_90_lo": ci_poisson_max_lo,
+                "ci_90_hi": ci_poisson_max_hi,
+            },
         },
         # "poisson_single_parameter": {
         #     "point_estimate": point_poisson_single,
@@ -232,11 +269,21 @@ def run_one_split(
             "point_estimate": point_ppi,
             "ci_90_lo": ci_ppi_lo,
             "ci_90_hi": ci_ppi_hi,
+            "max": {
+                "point_estimate": point_ppi_max,
+                "ci_90_lo": ci_ppi_max_lo,
+                "ci_90_hi": ci_ppi_max_hi,
+            },
         },
         "discount": {
             "point_estimate": point_discount,
             "ci_90_lo": ci_discount_lo,
             "ci_90_hi": ci_discount_hi,
+            "max": {
+                "point_estimate": None,
+                "ci_90_lo": None,
+                "ci_90_hi": None,
+            },
         },
     }
     if point_generative is not None:
@@ -244,6 +291,11 @@ def run_one_split(
             "point_estimate": point_generative,
             "ci_90_lo": ci_generative_lo,
             "ci_90_hi": ci_generative_hi,
+            "max": {
+                "point_estimate": point_generative_max,
+                "ci_90_lo": ci_generative_max_lo,
+                "ci_90_hi": ci_generative_max_hi,
+            },
         }
     result["stan_diagnostics"] = {
         "poisson_calibration": diag_poisson,
