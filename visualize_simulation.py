@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Visualize simulation results: MSE, bias, 90% CI width, and coverage vs n_labeled for each method.
+Metrics are scaled by N (number of samples) so they reflect error of the estimate of total fish count.
 Produces two plots: one for importance sampling (IS) labeling, one for random labeling.
 
 Usage:
@@ -41,7 +42,7 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize simulation: MSE, bias, CI width, coverage vs n_labeled.")
     parser.add_argument(
         "--results",
-        default="model_outputs/simulation_ppi_discount_poisson_results.json",
+        default="/Users/LOF19/maria_poisson_calibration/model_outputs/16_02_26_simulation_ppi_discount_poisson_results.json",
         help="Path to simulation results JSON",
     )
     parser.add_argument(
@@ -58,6 +59,7 @@ def main():
 
     results = load_results(args.results)
     true_mean = load_true_mean(args.data)
+    N = results["N"]  # number of samples (e.g. 658) — scale to total fish count
 
     # Support both legacy (by_n_labeled) and new (by_labeling) result formats
     if "by_labeling" in results:
@@ -69,11 +71,11 @@ def main():
         by_labeling = {"importance_sampling": results["by_n_labeled"]}
         n_labeled_levels = sorted(int(k) for k in results["by_n_labeled"].keys())
 
-    all_methods = ["poisson_calibration", "ppi", "discount"]
-    method_colors = {"poisson_calibration": "C0", "ppi": "C1", "discount": "C2"}
+    all_methods = ["poisson_calibration", "ppi", "discount", "generative_model"]
+    method_colors = {"poisson_calibration": "C0", "ppi": "C1", "discount": "C2", "generative_model": "C3"}
     method_labels_map = {
-        "importance_sampling": ["Poisson calibration", "PPI", "DISCount"],
-        "random": ["Poisson calibration", "PPI", "Sample mean"],
+        "importance_sampling": ["Poisson calibration", "PPI", "DISCount", "Generative model"],
+        "random": ["Poisson calibration", "PPI", "Sample mean", "Generative model"],
     }
     strategy_titles = {"importance_sampling": "Importance sampling (q ∝ g)", "random": "Random labeling"}
     strategy_label_col = {"importance_sampling": "Importance sampling", "random": "Random labeling"}
@@ -101,9 +103,10 @@ def main():
             runs = by_n_labeled[str(n)]
             for m in methods:
                 met = compute_metrics(runs, m, true_mean)
-                mse_by_n[m].append(met["mse"])
-                bias_by_n[m].append(met["bias"])
-                ci_width_by_n[m].append(met["mean_ci_width"])
+                # Scale to total fish count: total = mean * N, so MSE_total = N²*MSE, bias_total = N*bias, width_total = N*width
+                mse_by_n[m].append(met["mse"] * (N ** 2))
+                bias_by_n[m].append(met["bias"] * N)
+                ci_width_by_n[m].append(met["mean_ci_width"] * N)
                 coverage_by_n[m].append(met["coverage"])
 
         # --- Left column: approach name only ---
@@ -117,36 +120,25 @@ def main():
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, mse_by_n[m], "o-", label=lab, color=c)
         ax.set_xlabel("n_labeled")
-        ax.set_ylabel("MSE")
-        ax.set_title("Mean squared error")
+        ax.set_ylabel("MSE (total count)")
+        ax.set_title("MSE of total fish estimate")
         ax.set_yscale("log")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-        # --- Bias ---
-        ax = axes[row, 2]
-        for m, lab, c in zip(methods, labels, colors):
-            ax.plot(x, bias_by_n[m], "o-", label=lab, color=c)
-        ax.axhline(0, color="black", ls="--", lw=1, label="Unbiased")
-        ax.set_xlabel("n_labeled")
-        ax.set_ylabel("Bias")
-        ax.set_title("Bias")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
         # --- 90% CI width ---
-        ax = axes[row, 3]
+        ax = axes[row, 2]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, ci_width_by_n[m], "o-", label=lab, color=c)
         ax.set_xlabel("n_labeled")
-        ax.set_ylabel("90% CI width (mean)")
-        ax.set_title("90% CI width")
+        ax.set_ylabel("90% CI width (total count)")
+        ax.set_title("90% CI width (total fish)")
         ax.set_yscale("log")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
         # --- Coverage ---
-        ax = axes[row, 4]
+        ax = axes[row, 3]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, coverage_by_n[m], "o-", label=lab, color=c)
         ax.axhline(0.9, color="black", ls="--", lw=1.5, label="Nominal 90%")
@@ -157,12 +149,24 @@ def main():
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-    plt.suptitle(f"N={results['N']}, true mean = {true_mean:.3f}", fontsize=10)
+        # --- Bias (final column) ---
+        ax = axes[row, 4]
+        for m, lab, c in zip(methods, labels, colors):
+            ax.plot(x, bias_by_n[m], "o-", label=lab, color=c)
+        ax.axhline(0, color="black", ls="--", lw=1, label="Unbiased")
+        ax.set_xlabel("n_labeled")
+        ax.set_ylabel("Bias (total count)")
+        ax.set_title("Bias of total fish estimate")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+
+    true_total = true_mean * N
+    plt.suptitle(f"N={N}, true total fish = {true_total:.0f} (mean fish_per_vid = {true_mean:.3f})", fontsize=10)
     plt.tight_layout()
     plt.savefig(args.output, dpi=150, bbox_inches="tight")
     plt.close()
     print(f"Figure saved to {args.output}")
-    print(f"True mean: {true_mean:.3f}")
+    print(f"True mean: {true_mean:.3f}, true total fish: {true_total:.0f}")
     for strategy in strategies:
         by_n_labeled = by_labeling[strategy]
         labels = [method_labels_map[strategy][all_methods.index(m)] for m in methods]
@@ -173,7 +177,7 @@ def main():
                 idx = n_labeled_levels.index(n)
                 runs = by_n_labeled[str(n)]
                 met = compute_metrics(runs, m, true_mean)
-                print(f"      n={n}: MSE={met['mse']:.4f}, bias={met['bias']:.4f}, CI width={met['mean_ci_width']:.3f}, coverage={met['coverage']:.2%}")
+                print(f"      n={n}: MSE(total)={met['mse'] * (N**2):.1f}, bias(total)={met['bias'] * N:.1f}, CI width(total)={met['mean_ci_width'] * N:.1f}, coverage={met['coverage']:.2%}")
 
 
 if __name__ == "__main__":

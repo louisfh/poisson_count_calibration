@@ -14,7 +14,7 @@ parameters {
 
 model {
   // PRIORS
-  alpha ~ normal(0, 5); // should probably be tighter. Reflects baseline rate of events (that aren't predicted)
+  alpha ~ normal(0, 2); // should probably be tighter. Reflects baseline rate of events (that aren't predicted)
   beta ~ normal(1, 1); // maybe beta should be constrained to be positive
 
   // LIKELIHOOD
@@ -35,13 +35,13 @@ generated quantities {
   for (i in 1:N_unlabeled) {
     lambda_unlabeled[i] = exp(alpha + beta * log(predicted_counts_unlabeled[i] + epsilon));
   }
-  // Posterior predictive: predicted true counts (with uncertainty)
+  // Posterior predictive: predicted true counts for unlabeled (with uncertainty)
   array[N_unlabeled] int<lower=0> true_counts_unlabeled_rep;
   for (i in 1:N_unlabeled) {
     true_counts_unlabeled_rep[i] = poisson_rng(lambda_unlabeled[i]);
   }
-  // Average number of rays per image (population mean rate) — for 90% CI
-  real mean_rays_per_image = (sum(lambda_labeled) + sum(lambda_unlabeled)) / (N_labeled + N_unlabeled);
+  // Population mean: labeled data (known) + realized unlabeled predictions / total N
+  real mean_rays_per_image = (sum(true_counts_labeled) + sum(true_counts_unlabeled_rep)) / (N_labeled + N_unlabeled);
 
   // also get the maximum count in any image (both labeled and unlabeled)
   int<lower=0> max_count;
