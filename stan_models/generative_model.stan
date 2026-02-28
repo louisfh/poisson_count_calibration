@@ -83,20 +83,47 @@ model {
 }
 
 generated quantities {
-  // Posterior predictive: true counts and predicted counts for unlabeled
-  array[N_unlabeled] int<lower=0> true_counts_unlabeled_rep;
-  array[N_unlabeled] int<lower=0> predicted_counts_unlabeled_rep;
+  array[N_unlabeled] int<lower=0> positives_detected_unlabeled_latent;
+
+  real total_positives_dataset = total_count_labeled;
+  real mean_positives_dataset;
+
+  real total_positives_expected = total_count_labeled;
+  real mean_positives_expected;
+
+  // Max positives over the whole dataset (labeled observed + unlabeled latent draw)
+  int<lower=0> max_count = max(true_counts_labeled);
 
   for (i in 1:N_unlabeled) {
-    int tc_rep = neg_binomial_2_rng(mu, phi);
-    int tp_rep = binomial_rng(tc_rep, detection_p);
-    int fp_rep = poisson_rng(avg_false_pos);
-    true_counts_unlabeled_rep[i] = tc_rep;
-    predicted_counts_unlabeled_rep[i] = tp_rep + fp_rep;
+    int pred_i = predicted_counts_unlabeled[i];
+
+    vector[pred_i + 1] log_w;
+    for (tp in 0:pred_i) {
+      int fp = pred_i - tp;
+      log_w[tp + 1] =
+        neg_binomial_2_lpmf(tp | mu * detection_p, phi) +
+        poisson_lpmf(fp | avg_false_pos);
+    }
+    vector[pred_i + 1] w = softmax(log_w);
+
+    int tp_draw = categorical_rng(w) - 1;
+    positives_detected_unlabeled_latent[i] = tp_draw;
+
+    int missed_draw = neg_binomial_2_rng(mu * (1 - detection_p), phi);
+    int total_pos_draw = tp_draw + missed_draw;
+
+    total_positives_dataset += total_pos_draw;
+
+    // update max
+    if (total_pos_draw > max_count)
+      max_count = total_pos_draw;
+
+    // expectation accumulation
+    real E_tp = 0;
+    for (tp in 0:pred_i) E_tp += tp * w[tp + 1];
+    total_positives_expected += E_tp + mu * (1 - detection_p);
   }
 
-  // Population mean: labeled data (known) + realized unlabeled predictions / total N
-  real mean_true_count = (total_count_labeled + sum(true_counts_unlabeled_rep)) * 1.0 / total_N;
-  real mean_predicted_count = mu * detection_p + avg_false_pos;
-  real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));
+  mean_positives_dataset  = total_positives_dataset  / total_N;
+  mean_positives_expected = total_positives_expected / total_N;
 }

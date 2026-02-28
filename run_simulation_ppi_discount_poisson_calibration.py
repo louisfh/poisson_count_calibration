@@ -134,9 +134,12 @@ def run_one_split(
         show_progress=False,
         output_dir=out_dir_poisson if out_dir_poisson else None,
     )
-    mean_rays = fit.stan_variable("mean_rays_per_image")
-    point_poisson = float(mean_rays.mean())
-    ci_poisson_lo, ci_poisson_hi = map(float, az.hdi(mean_rays, hdi_prob=0.9))
+    mean_positives_dataset = fit.stan_variable("mean_positives_dataset")
+    mean_positives_expected = fit.stan_variable("mean_positives_expected")
+    point_poisson = float(mean_positives_dataset.mean())
+    ci_poisson_lo, ci_poisson_hi = map(float, az.hdi(mean_positives_dataset, hdi_prob=0.9))
+    point_poisson_expected = float(mean_positives_expected.mean())
+    ci_poisson_expected_lo, ci_poisson_expected_hi = map(float, az.hdi(mean_positives_expected, hdi_prob=0.9))
     max_count_poisson = fit.stan_variable("max_count")
     point_poisson_max = float(max_count_poisson.mean())
     ci_poisson_max_lo, ci_poisson_max_hi = map(float, az.hdi(max_count_poisson, hdi_prob=0.9))
@@ -174,9 +177,12 @@ def run_one_split(
             show_progress=False,
             output_dir=out_dir_generative if out_dir_generative else None,
         )
-        mean_true_count = fit_gen.stan_variable("mean_true_count")
-        point_generative = float(mean_true_count.mean())
-        ci_generative_lo, ci_generative_hi = map(float, az.hdi(mean_true_count, hdi_prob=0.9))
+        mean_positives_dataset = fit_gen.stan_variable("mean_positives_dataset")
+        mean_positives_expected = fit_gen.stan_variable("mean_positives_expected")
+        point_generative = float(mean_positives_dataset.mean())
+        ci_generative_lo, ci_generative_hi = map(float, az.hdi(mean_positives_dataset, hdi_prob=0.9))
+        point_generative_expected = float(mean_positives_expected.mean())
+        ci_generative_expected_lo, ci_generative_expected_hi = map(float, az.hdi(mean_positives_expected, hdi_prob=0.9))
         max_count_gen = fit_gen.stan_variable("max_count")
         point_generative_max = float(max_count_gen.mean())
         ci_generative_max_lo, ci_generative_max_hi = map(float, az.hdi(max_count_gen, hdi_prob=0.9))
@@ -254,6 +260,11 @@ def run_one_split(
             "point_estimate": point_poisson,
             "ci_90_lo": ci_poisson_lo,
             "ci_90_hi": ci_poisson_hi,
+            "mean_positives_expected": {
+                "point_estimate": point_poisson_expected,
+                "ci_90_lo": ci_poisson_expected_lo,
+                "ci_90_hi": ci_poisson_expected_hi,
+            },
             "max": {
                 "point_estimate": point_poisson_max,
                 "ci_90_lo": ci_poisson_max_lo,
@@ -291,6 +302,11 @@ def run_one_split(
             "point_estimate": point_generative,
             "ci_90_lo": ci_generative_lo,
             "ci_90_hi": ci_generative_hi,
+            "mean_positives_expected": {
+                "point_estimate": point_generative_expected,
+                "ci_90_lo": ci_generative_expected_lo,
+                "ci_90_hi": ci_generative_expected_hi,
+            },
             "max": {
                 "point_estimate": point_generative_max,
                 "ci_90_lo": ci_generative_max_lo,

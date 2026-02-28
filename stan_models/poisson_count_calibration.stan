@@ -46,8 +46,9 @@ generated quantities {
   for (i in 1:N_unlabeled) {
     true_counts_unlabeled_rep[i] = poisson_rng(lambda_unlabeled[i]);
   }
-  // Population mean: labeled data (known) + realized unlabeled predictions / total N
-  real mean_rays_per_image = (total_count_labeled + sum(true_counts_unlabeled_rep)) * 1.0 / total_N;
+  // Population mean (matches generative_model naming)
+  real mean_positives_dataset = (total_count_labeled + sum(true_counts_unlabeled_rep)) * 1.0 / total_N;
+  real mean_positives_expected = (total_count_labeled + sum(lambda_unlabeled)) * 1.0 / total_N;
 
   // also get the maximum count in any image (both labeled and unlabeled)
   real max_count = max(max(true_counts_labeled), max(true_counts_unlabeled_rep));
