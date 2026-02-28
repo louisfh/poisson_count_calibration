@@ -34,10 +34,15 @@ def load_true_max(data_path: str):
     return int(f_arr.max())
 
 
-def compute_metrics(runs: list, method: str, true_mean: float):
-    pts = np.array([r[method]["point_estimate"] for r in runs])
-    lo = np.array([r[method]["ci_90_lo"] for r in runs])
-    hi = np.array([r[method]["ci_90_hi"] for r in runs])
+def compute_metrics(runs: list, method: str, true_mean: float, subkey: str | None = None):
+    """Compute metrics. If subkey is set, use r[method][subkey] instead of r[method]."""
+    if subkey:
+        data = [r[method][subkey] for r in runs]
+    else:
+        data = [r[method] for r in runs]
+    pts = np.array([d["point_estimate"] for d in data])
+    lo = np.array([d["ci_90_lo"] for d in data])
+    hi = np.array([d["ci_90_hi"] for d in data])
     mse = np.mean((pts - true_mean) ** 2)
     bias = np.mean(pts) - true_mean
     widths = hi - lo
@@ -116,6 +121,11 @@ def main():
     methods = [m for m in all_methods if m in sample_run]
     colors = [method_colors[m] for m in methods]
 
+    # Extra mean methods (nested data): (parent_method, subkey, label, linestyle)
+    extra_mean_methods = []
+    if "generative_model" in methods and "mean_positives_expected" in sample_run.get("generative_model", {}):
+        extra_mean_methods.append(("generative_model", "mean_positives_expected", "Generative model (expected)", "--"))
+
     x = np.array(n_labeled_levels)
     n_rows = len(strategies)
     methods_with_max = [m for m in methods if compute_max_metrics(by_labeling[strategies[0]][str(n_labeled_levels[0])], m, true_max) is not None]
@@ -132,6 +142,10 @@ def main():
         bias_by_n = {m: [] for m in methods}
         ci_width_by_n = {m: [] for m in methods}
         coverage_by_n = {m: [] for m in methods}
+        extra_mse = {em: [] for em in extra_mean_methods}
+        extra_bias = {em: [] for em in extra_mean_methods}
+        extra_ci_width = {em: [] for em in extra_mean_methods}
+        extra_coverage = {em: [] for em in extra_mean_methods}
 
         for n in n_labeled_levels:
             runs = by_n_labeled[str(n)]
@@ -141,6 +155,13 @@ def main():
                 bias_by_n[m].append(met["bias"] * N)
                 ci_width_by_n[m].append(met["mean_ci_width"] * N)
                 coverage_by_n[m].append(met["coverage"])
+            for parent, subkey, label, ls in extra_mean_methods:
+                met = compute_metrics(runs, parent, true_mean, subkey=subkey)
+                em = (parent, subkey, label, ls)
+                extra_mse[em].append(met["mse"] * (N ** 2))
+                extra_bias[em].append(met["bias"] * N)
+                extra_ci_width[em].append(met["mean_ci_width"] * N)
+                extra_coverage[em].append(met["coverage"])
 
         ax = axes_mean[row, 0]
         ax.set_axis_off()
@@ -150,6 +171,8 @@ def main():
         ax = axes_mean[row, 1]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, mse_by_n[m], "o-", label=lab, color=c, alpha=0.7)
+        for parent, subkey, label, ls in extra_mean_methods:
+            ax.plot(x, extra_mse[(parent, subkey, label, ls)], f"o{ls}", label=label, color=method_colors[parent], alpha=0.7)
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("MSE (total count)")
         ax.set_title("MSE of total fish estimate")
@@ -160,6 +183,8 @@ def main():
         ax = axes_mean[row, 2]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, ci_width_by_n[m], "o-", label=lab, color=c, alpha=0.7)
+        for parent, subkey, label, ls in extra_mean_methods:
+            ax.plot(x, extra_ci_width[(parent, subkey, label, ls)], f"o{ls}", label=label, color=method_colors[parent], alpha=0.7)
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("90% CI width (total count)")
         ax.set_title("90% CI width (total fish)")
@@ -170,6 +195,8 @@ def main():
         ax = axes_mean[row, 3]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, coverage_by_n[m], "o-", label=lab, color=c, alpha=0.7)
+        for parent, subkey, label, ls in extra_mean_methods:
+            ax.plot(x, extra_coverage[(parent, subkey, label, ls)], f"o{ls}", label=label, color=method_colors[parent], alpha=0.7)
         ax.axhline(0.9, color="black", ls="--", lw=1.5, label="Nominal 90%")
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("Coverage")
@@ -181,6 +208,8 @@ def main():
         ax = axes_mean[row, 4]
         for m, lab, c in zip(methods, labels, colors):
             ax.plot(x, bias_by_n[m], "o-", label=lab, color=c, alpha=0.7)
+        for parent, subkey, label, ls in extra_mean_methods:
+            ax.plot(x, extra_bias[(parent, subkey, label, ls)], f"o{ls}", label=label, color=method_colors[parent], alpha=0.7)
         ax.axhline(0, color="black", ls="--", lw=1, label="Unbiased")
         ax.set_xlabel("n_labeled")
         ax.set_ylabel("Bias (total count)")

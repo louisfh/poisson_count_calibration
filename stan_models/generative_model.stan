@@ -11,9 +11,12 @@ data {
   array[N_labeled] int<lower=0> true_counts_labeled;
   array[N_unlabeled] int<lower=0> predicted_counts_unlabeled;
   real<lower=0> epsilon; // small constant (kept for same data interface; unused in this model)
-  // Unlabeled: 1 = use in likelihood, 0 = labeled-only fit (unlabeled still in generated quantities)
+
+  // THE BELOW ARE SETTINGS THAT CAN BE USED TO SPEED UP INFERENCE.
+  // BY DEFAULT, WE USE ALL UNLABELED DATA IN THE LIKELIHOOD. BUT THIS CAN BE SLOW.
+  // USE_UNLABELED_LIKELIHOOD: 1 = use unlabele data in likelihood, 0 = don't 
   int<lower=0, upper=1> use_unlabeled_likelihood;
-  // If > 0, use only this many unlabeled in likelihood (subsample for speed); 0 = use all
+  // MAX_UNLABELED_IN_LIKELIHOOD: If > 0, use only this many unlabeled in likelihood (subsample for speed); 0 = use all
   int<lower=0> max_unlabeled_in_likelihood;
 }
 
@@ -61,7 +64,7 @@ model {
   }
 
   // LIKELIHOOD — unlabeled data (observe only pred_count; marginalize over true_count)
-  // use_unlabeled_likelihood=0: fit on labeled only. max_unlabeled_in_likelihood>0: subsample (e.g. 5000 of 100k).
+  // use_unlabeled_likelihood=0: fit on labeled only. max_unlabeled_in_likelihood>0: subsample to this many
 // Unlabeled: pred = tp + fp, tp ~ NB2(mu*detection_p, phi), fp ~ Poisson(avg_false_pos)
   if (use_unlabeled_likelihood) {
     int n_unlabeled_used = max_unlabeled_in_likelihood > 0
@@ -118,7 +121,8 @@ generated quantities {
     if (total_pos_draw > max_count)
       max_count = total_pos_draw;
 
-    // expectation accumulation
+    // expectation accumulation. Keeping this in case th expectation is the right quantity to estimate.
+    // lol stats is confusing this might be dumb
     real E_tp = 0;
     for (tp in 0:pred_i) E_tp += tp * w[tp + 1];
     total_positives_expected += E_tp + mu * (1 - detection_p);
