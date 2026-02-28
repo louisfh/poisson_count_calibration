@@ -1,4 +1,5 @@
 // Efficient generative model: same as generative_model.stan but unlabeled likelihood
+// TODO: THIS IS NOW OUT OF SYNC WITH GENERATIVE MODEL.STAN. FIX.
 // is computed once per unique predicted_count and weighted by how many had that value.
 // Unique values and counts are derived in transformed data from predicted_counts_unlabeled.
 
