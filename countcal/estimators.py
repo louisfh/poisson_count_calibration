@@ -127,8 +127,13 @@ def fit_model(method: str, f, g, s: Sample, seed: int, chains: int = 4, iter_war
               iter_sampling: int = 500, adapt_delta: float | None = None) -> dict:
     """Fit one model-based estimator. Returns {"mean": interval, "max": interval, "diag": {...}}."""
     model_name, extra = MODEL_BASED[method]
+    return run_stan(model_name, stan_data(f, g, s) | extra, seed, chains, iter_warmup, iter_sampling, adapt_delta)
+
+
+def run_stan(model_name: str, data: dict, seed: int, chains: int = 4, iter_warmup: int = 500,
+             iter_sampling: int = 500, adapt_delta: float | None = None) -> dict:
+    """Sample a model whose generated quantities include mean_f and max_f."""
     model = stan_model(model_name)
-    data = stan_data(f, g, s) | extra
     out_dir = tempfile.mkdtemp(prefix="countcal_")
     try:
         fit = model.sample(
@@ -150,3 +155,34 @@ def fit_model(method: str, f, g, s: Sample, seed: int, chains: int = 4, iter_war
         "max": _posterior_interval(max_draws),
         "diag": {"n_divergent": n_div, "max_rhat": max_rhat},
     }
+
+
+# --- registration ------------------------------------------------------------------------
+
+def _design_based(fn):
+    def run(d, s, seed, stan_kwargs):
+        return {"mean": fn(d.f, d.g, s)}
+    return run
+
+
+def _model_based(name):
+    def run(d, s, seed, stan_kwargs):
+        return fit_model(name, d.f, d.g, s, seed=seed, **(stan_kwargs or {}))
+    return run
+
+
+def _register_all():
+    from .methods import Method, register
+
+    labels = {"sample_mean": "labels only", "hh": "labels only", "ppi": "difference (PPI)",
+              "hh_cv": "difference (PPI)", "ppi_pp": "regression (PPI++)"}
+    for design, fns in DESIGN_BASED.items():
+        for name, fn in fns.items():
+            register(Method(name, _design_based(fn), (design,), labels[name], "design-based"))
+    model_labels = {"poisson": "Poisson GLM", "negbin": "NegBin GLM", "gen_joint": "generative, joint",
+                    "gen_cut": "generative, cut"}
+    for name in MODEL_BASED:
+        register(Method(name, _model_based(name), None, model_labels[name], "model-based"))
+
+
+_register_all()

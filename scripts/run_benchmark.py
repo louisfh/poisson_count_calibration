@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from countcal import data, estimators  # noqa: E402
-from countcal.benchmark import FIELDS, run_task  # noqa: E402
+from countcal.benchmark import FIELDS, methods_for, run_task  # noqa: E402
 
 STAN_KWARGS = {"chains": 2, "iter_warmup": 400, "iter_sampling": 500}
 
@@ -53,22 +53,27 @@ def main():
 
     _quiet()
     datasets = args.datasets or data.available_datasets()
-    for m in {v[0] for v in estimators.MODEL_BASED.values()}:
-        estimators.stan_model(m)  # compile once before forking
+    for f in sorted(estimators.STAN_DIR.glob("*.stan")):
+        estimators.stan_model(f.stem)  # compile once before forking
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    done = set()
+    done = set()  # (dataset, design, n, rep, method) already in the output
     if out.exists():
         with open(out) as fp:
             for r in csv.DictReader(fp):
-                done.add((r["dataset"], r["design"], int(r["n"]), int(r["rep"])))
-    tasks = [
-        (ds, des, n, rep, args.methods)
-        for ds in datasets for des in args.designs for n in args.n for rep in range(args.repeats)
-        if (ds, des, n, rep) not in done and n < data.load(ds).N
-    ]
-    print(f"{len(tasks)} tasks to run ({len(done)} already done) with {args.workers} workers -> {out}", flush=True)
+                done.add((r["dataset"], r["design"], int(r["n"]), int(r["rep"]), r["method"]))
+    tasks = []
+    for ds in datasets:
+        N = data.load(ds).N
+        for des in args.designs:
+            wanted = [m for m in methods_for(ds, des) if not args.methods or m in args.methods]
+            for n in args.n:
+                for rep in range(args.repeats):
+                    todo = [m for m in wanted if (ds, des, n, rep, m) not in done]
+                    if todo and n < N:
+                        tasks.append((ds, des, n, rep, todo))
+    print(f"{len(tasks)} tasks to run with {args.workers} workers -> {out}", flush=True)
 
     new_file = not out.exists()
     errors = []

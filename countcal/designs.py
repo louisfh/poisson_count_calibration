@@ -3,11 +3,17 @@
 A Sample records the sequence of draws (indices into the population, possibly with
 repeats) and the per-draw selection probabilities. Model-based estimators use only
 the distinct labeled images; design-based estimators use the draws.
+
+Every design here selects images using only the detector counts g (and randomness), so
+selection is ignorable for any model that conditions on g; model-based methods therefore
+apply to every registered design. A design function takes (g, n, rng) and returns a Sample;
+register new ones in DESIGNS. Extra design information (strata, inclusion probabilities,
+...) goes in Sample.meta for design-based estimators that need it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -20,6 +26,7 @@ class Sample:
     design: str
     draws: np.ndarray            # indices, length n (repeats allowed for "pps")
     q: np.ndarray | None = None  # per-draw selection probabilities over the population ("pps")
+    meta: dict = field(default_factory=dict)
 
     @property
     def n(self) -> int:
@@ -30,9 +37,9 @@ class Sample:
         return np.unique(self.draws)
 
 
-def srs(N: int, n: int, rng: np.random.Generator) -> Sample:
+def srs(g: np.ndarray, n: int, rng: np.random.Generator) -> Sample:
     """Simple random sample without replacement."""
-    return Sample("srs", rng.choice(N, size=n, replace=False))
+    return Sample("srs", rng.choice(len(g), size=n, replace=False))
 
 
 def pps(g: np.ndarray, n: int, rng: np.random.Generator, floor: float = PPS_FLOOR) -> Sample:
@@ -46,8 +53,6 @@ DESIGNS = {"srs": srs, "pps": pps}
 
 
 def draw(design: str, g: np.ndarray, n: int, rng: np.random.Generator) -> Sample:
-    if design == "srs":
-        return srs(len(g), n, rng)
-    if design == "pps":
-        return pps(g, n, rng)
-    raise ValueError(f"unknown design {design!r}")
+    if design not in DESIGNS:
+        raise ValueError(f"unknown design {design!r}")
+    return DESIGNS[design](g, n, rng)

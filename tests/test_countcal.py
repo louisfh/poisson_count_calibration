@@ -31,7 +31,7 @@ def test_pps_probabilities_cover_zero_predictions():
 
 
 def test_stan_data_collapses_unlabeled(pop):
-    s = designs.srs(pop.N, 30, np.random.default_rng(1))
+    s = designs.srs(pop.g, 30, np.random.default_rng(1))
     d = E.stan_data(pop.f, pop.g, s)
     assert d["N_lab"] == 30
     assert sum(d["g_mult"]) == pop.N - 30
@@ -51,7 +51,7 @@ def test_models_recover_mean_when_well_specified(method):
 
     logging.getLogger("cmdstanpy").setLevel(logging.CRITICAL)
     pop = data.synth_well_specified()
-    s = designs.srs(pop.N, 200, np.random.default_rng(2))
+    s = designs.srs(pop.g, 200, np.random.default_rng(2))
     r = E.fit_model(method, pop.f, pop.g, s, seed=3, chains=2)
     assert r["mean"]["lo"] <= pop.f.mean() <= r["mean"]["hi"]
     assert r["diag"]["max_rhat"] < 1.05
