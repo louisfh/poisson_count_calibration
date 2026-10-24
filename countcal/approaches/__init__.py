@@ -7,3 +7,4 @@ from . import calibrated  # noqa: F401
 from . import intervals  # noqa: F401
 from . import designs_learned  # noqa: F401
 from . import bnp  # noqa: F401
+from . import hybrid  # noqa: F401
