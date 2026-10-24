@@ -47,9 +47,10 @@ python scripts/prepare_existing.py                          # builds data/proces
 python -m pytest -m "not slow"
 ```
 
-Stan models compile on first use. The Serengeti dataset is already in
-`data/processed/`; rebuilding it from images needs `pip install megadetector` and ~1 GB of
-downloads (see the script's docstring).
+Stan models compile on first use. The Serengeti datasets are already in
+`data/processed/` and the raw MegaDetector output is in `data/raw/serengeti/`; rebuilding
+from images needs `pip install megadetector` and ~1.1 GB of downloads (see the script's
+docstring; on CPU MegaDetector v5a takes ~2 s per image).
 
 ## Running the benchmark
 
@@ -68,18 +69,20 @@ Results are appended as tasks finish, so an interrupted run resumes where it sto
 |---|---|---|---|---|---|
 | `fish` | `data/raw/fish_discount_f_g_2025-11-19.json` | 658 | 9.14 | 7.44 | detector undercounts; 15 days of clips |
 | `rays` | `data/raw/rays_maria_frame_counts.csv` (Maria) | 1763 | 1.14 | 0.72 | video frames, 6 sites / 16 videos; detector misses most rays in 3 videos |
-| `serengeti_md_t10/t20/t50` | Snapshot Serengeti boxes (LILA) + MegaDetector v5a | 1845 | 2.62 | see summary | 9 camera sites, season 1; predicted count = animal detections above confidence 0.1 / 0.2 / 0.5 |
-| `synth_well_specified` | simulated | 1000 | | | the generative detection model holds exactly |
-| `synth_crowding` | simulated | 1000 | | | detection probability falls with crowding |
-| `synth_double_count` | simulated | 1000 | | | duplicate detections: detector overcounts |
-| `synth_zero_inflated` | simulated | 1000 | | | 60% empty images that attract false positives |
+| `serengeti_md_t10/t20/t50` | Snapshot Serengeti boxes (LILA) + MegaDetector v5a | 1845 | 2.66 | 2.89 / 2.57 / 2.16 | 9 camera sites, season 1; predicted count = animal detections above confidence 0.1 / 0.2 / 0.5; max true count 29 |
+| `synth_well_specified` | simulated | 1000 | 5.95 | 5.27 | the generative detection model holds exactly |
+| `synth_crowding` | simulated | 1000 | 6.02 | 3.04 | detection probability falls with crowding |
+| `synth_double_count` | simulated | 1000 | 3.87 | 4.61 | duplicate detections: detector overcounts |
+| `synth_zero_inflated` | simulated | 1000 | 3.40 | 3.39 | 62% empty images that attract false positives |
 
 Each dataset is treated as a fixed finite population; the estimand is its mean (or max)
 true count over all N images, labeled and unlabeled.
 
 Caveats: MegaDetector's training data includes Snapshot Serengeti, so the detector is
-better there than on a new camera network. The Serengeti survey contains only images that
-have at least one animal box. Rays site names are lower-cased in `data/processed/rays.csv`
+better there than on a new camera network. The Serengeti bounding-box release covers
+images that volunteers tagged as containing animals, so only 4% of these images have no
+boxes; 26 selected images are missing from the LILA mirror and are excluded
+(`data/raw/serengeti/unavailable_images.txt`). Rays site names are lower-cased in `data/processed/rays.csv`
 because the raw file mixes `Pescador`/`pescador` and `Rincon`/`rincon`.
 
 ## Methods
