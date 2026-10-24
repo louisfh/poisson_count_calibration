@@ -123,6 +123,11 @@ Reading across the families:
   badly wrong). Its point
   estimates are as good as the best design-based ones (RMSE 0.87× PPI under stratified
   labeling), but its intervals are 1.5–2× too wide (coverage ~0.98).
+- **Less-parametric Bayes** did not beat calibrated Bayes: the stratified Pólya posterior is
+  efficient but undercovers (it can only replay residuals it has seen), and the monotone NB
+  curve, which passed on the first nine datasets, fails on WCS (coverage 0.76 at n = 100; it
+  has no site effects and the detector's bias differs by site) and is wildly biased at small
+  n on Channel Islands (+145% at n = 25, hidden by very wide intervals).
 - **Model-assisted** estimators are design-unbiased by construction; with small-sample
   (jackknife / t) intervals they nearly pass, and the variance prior takes them over the line.
 - **The design matters as much as the estimator**: stratifying on g with √ allocation
