@@ -72,22 +72,22 @@ def main():
     parser = argparse.ArgumentParser(description="Visualize simulation: MSE, bias, CI width, coverage vs n_labeled.")
     parser.add_argument(
         "--results",
-        default="model_outputs/27_02_26_simulation_ppi_discount_poisson_results.json",
+        default="archive/results/27_02_26_simulation_ppi_discount_poisson_results.json",
         help="Path to simulation results JSON",
     )
     parser.add_argument(
         "--data",
-        default="data/2025-11-19_discount_f_g.json",
+        default="data/raw/fish_discount_f_g_2025-11-19.json",
         help="Path to f/g data JSON (for true mean)",
     )
     parser.add_argument(
         "--output",
-        default="plots/simulation_visualization_mean.png",
+        default="archive/plots/simulation_visualization_mean.png",
         help="Output path for total fish (mean) figure",
     )
     parser.add_argument(
         "--output-max",
-        default="plots/simulation_visualization_max.png",
+        default="archive/plots/simulation_visualization_max.png",
         help="Output path for max count figure",
     )
     args = parser.parse_args()

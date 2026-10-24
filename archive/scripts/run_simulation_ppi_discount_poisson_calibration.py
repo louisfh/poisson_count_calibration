@@ -60,7 +60,7 @@ def _stan_diagnostics(fit, rhat_threshold: float = 1.01):
     }
 
 
-def load_data(path: str = "data/2025-11-19_discount_f_g.json"):
+def load_data(path: str = "data/raw/fish_discount_f_g_2025-11-19.json"):
     with open(path) as f:
         data_raw = json.load(f)
     f_arr = np.array(data_raw["f"], dtype=np.int32)
@@ -348,7 +348,7 @@ def main():
         default=20,
         help="Repeats per n_labeled level with different random seeds",
     )
-    parser.add_argument("--data", default="data/2025-11-19_discount_f_g.json", help="Path to f/g JSON data")
+    parser.add_argument("--data", default="data/raw/fish_discount_f_g_2025-11-19.json", help="Path to f/g JSON data")
     parser.add_argument("--seed", type=int, default=42, help="RNG seed for reproducibility")
     parser.add_argument("--n-boot", type=int, default=1000, help="Bootstrap samples for DISCount CI")
     parser.add_argument(
@@ -384,7 +384,7 @@ def main():
 
     if args.output is None:
         args.output = os.path.join(
-            "model_outputs",
+            "archive/results",
             f"{datetime.now().strftime('%d_%m_%y')}_simulation_ppi_discount_poisson_results.json",
         )
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
@@ -410,9 +410,9 @@ def main():
     print("Labeling strategies: importance sampling (q ∝ g) and random (uniform)")
     print("Running simulation...")
 
-    model = CmdStanModel(stan_file="stan_models/poisson_count_calibration.stan")
-    # model_single_parameter = CmdStanModel(stan_file="stan_models/poisson_single_parameter.stan")
-    model_generative = None if args.no_generative else CmdStanModel(stan_file="stan_models/generative_model.stan")
+    model = CmdStanModel(stan_file="archive/stan_models/poisson_count_calibration.stan")
+    # model_single_parameter = CmdStanModel(stan_file="archive/stan_models/poisson_single_parameter.stan")
+    model_generative = None if args.no_generative else CmdStanModel(stan_file="archive/stan_models/generative_model.stan")
     by_labeling = {"importance_sampling": {}, "random": {}}
     out = {
         "N": N,

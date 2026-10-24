@@ -1,0 +1,19 @@
+# Compiled Stan models (cmdstanpy writes the executable next to the .stan file)
+*.hpp
+countcal/stan/*
+!countcal/stan/*.stan
+archive/stan_models/*
+!archive/stan_models/*.stan
+
+# Python
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# Notebooks / OS
+.ipynb_checkpoints/
+.DS_Store
+
+# Intermediate benchmark output
+results/*.part

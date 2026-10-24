@@ -1,0 +1,28 @@
+[project]
+name = "countcal"
+version = "0.1.0"
+description = "Calibrating ML detector counts against a small set of hand counts"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
+    "cmdstanpy>=1.2",
+]
+
+[project.optional-dependencies]
+# Only needed to rebuild the Serengeti dataset from images (scripts/prepare_serengeti.py detect).
+megadetector = ["megadetector"]
+dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["countcal"]
+
+[tool.setuptools.package-data]
+countcal = ["stan/*.stan"]
+
+[tool.pytest.ini_options]
+markers = ["slow: fits Stan models (deselect with -m 'not slow')"]
+testpaths = ["tests"]
+pythonpath = ["."]
