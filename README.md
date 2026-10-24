@@ -1,226 +1,177 @@
 # Count calibration: from detector counts to population counts
 
 An ML detector gives a predicted count `g` for every image in a survey; hand-counting
-gives the true count `f`, but only for a few images. This repo compares ways to combine
-the two to estimate the **population mean (equivalently total) count** and the
-**population maximum count**, with honest uncertainty:
+gives the true count `f`, but only for the images someone labels. This repo benchmarks
+ways to choose which images to label and to combine the two into an estimate of the
+**population mean (equivalently total) count** with an honest interval — design-based
+(PPI, DISCount), model-based (Bayesian calibration and detection models), and hybrids in
+the spirit of Little's *calibrated Bayes*.
 
-- **design-based** estimators that use the randomness of which images were hand-labeled
-  (sample mean, PPI difference estimator, PPI++ / regression estimator, DISCount's
-  Hansen–Hurwitz estimator and its control-variate version), and
-- **model-based** Bayesian estimators that model `f` given `g` (Poisson and negative
-  binomial calibration GLMs, and a generative detection model with misses and false
-  positives) and predict the unlabeled images.
+**Start with** [`results/leaderboard.md`](results/leaderboard.md) (every procedure ranked
+against the objective), [`docs/way_forward.md`](docs/way_forward.md) (the framing and the
+recommended next steps) and `results/figures/`.
 
-The benchmark runs every estimator on every dataset under two labeling designs and
-several labeling budgets, and reports bias, RMSE, interval coverage and width.
+## Objective
 
-## Layout
+A *procedure* is a labeling design plus an estimator. On each dataset — a fixed finite
+population — and each labeling budget n, the procedure is run on 100 independent labeled
+samples. `scripts/leaderboard.py` then asks:
 
-```
-countcal/                 the package
-  data.py                 dataset loaders + synthetic populations
-  designs.py              labeling designs (SRS, PPS-with-replacement)
-  estimators.py           all estimators
-  benchmark.py            one benchmark task
-  stan/                   Stan models used by the estimators
-scripts/
-  prepare_existing.py     data/raw -> data/processed for fish and rays
-  prepare_serengeti.py    Snapshot Serengeti + MegaDetector dataset (download + detect)
-  run_benchmark.py        run the benchmark (parallel, resumable) -> results/benchmark.csv
-  summarize_benchmark.py  results/benchmark.csv -> results/summary.{md,csv}, results/figures/
-data/
-  raw/                    source data as received / downloaded
-  processed/              one CSV per dataset: image_id, site, true_count, pred_count
-results/                  benchmark output (summary.md is the place to start)
-notebooks/                exploratory notebooks for the two original datasets
-tests/                    pytest (fast tests; `-m slow` also fits the Stan models)
-archive/                  the pre-refactor scripts, Stan models, notebooks and plots
-```
+- **Does it keep coverage?** Mean coverage of its 90% intervals ≥ 0.88 and no
+  (dataset, n) cell below 0.80, over n ∈ {25, 50, 100}. (A coverage estimate from 100
+  repeats has a standard error of ~0.03, so this tolerates noise but not systematic
+  undercoverage.) n = 10 is reported separately.
+- **Among those that do, how narrow are its intervals?** Geometric-mean interval width
+  relative to simple random sampling + the PPI difference estimator at the same n (RMSE
+  reported alongside).
 
-## Setup
+Requiring coverage on *every* dataset is deliberate: a user does not know in advance
+whether their detector over-counts, under-counts, misses herds or is nearly perfect.
 
-```bash
-pip install -e ".[dev]"
-python -c "import cmdstanpy; cmdstanpy.install_cmdstan()"   # once; compiles CmdStan
-python scripts/prepare_existing.py                          # builds data/processed/{fish,rays}.csv
-python -m pytest -m "not slow"
-```
+## Headline results
 
-Stan models compile on first use. The Serengeti datasets are already in
-`data/processed/` and the raw MegaDetector output is in `data/raw/serengeti/`; rebuilding
-from images needs `pip install megadetector` and ~1.1 GB of downloads (see the script's
-docstring; on CPU MegaDetector v5a takes ~2 s per image).
+Thirteen datasets (9 real, from 6 sources, + 4 simulated stress tests), 49 design +
+estimator procedures run at full scale, 248k labeled-sample replicates. Full table: `results/leaderboard.md`.
 
-## Running the benchmark
+| procedure | keeps coverage, all 13 datasets | interval width vs SRS + PPI | RMSE vs SRS + PPI | coverage at n = 10 |
+|---|---|---|---|---|
+| **stratified on g (√ allocation) + regression estimator + variance prior** (`strat_sqrt` + `st_reg_vp`) | **yes** (mean 0.94, min 0.84) | 0.96 | **0.74** | 0.92 |
+| SRS + PPI++ with jackknife + variance prior (`ppi_pp_jack_vp`) | yes (0.91, 0.82) | 1.06 | 0.89 | 0.93 |
+| stratified on g + calibrated Bayes (`strat_sqrt` + `cb_ps`) | yes (0.98, 0.83) | 1.51 | 0.87 | 0.99 |
+| PPS + calibrated Bayes with sites (`cb_ps_site`) | yes on the 9 datasets with sites (0.98, 0.89) | 1.67 | 1.01 | 0.99 |
+| SRS + PPI difference estimator (reference) | no (0.85, 0.54) | 1.00 | 1.00 | 0.74 |
+| PPS + DISCount with control variate (`hh_cv`) | no (0.86, 0.74) | 0.89 | 0.90 | 0.80 |
+| SRS + generative detection model, cut (`gen_cut`) | no (0.82, 0.59) | 0.82 | 0.87 | 0.87 |
+| PPS + generative detection model, joint (`gen_joint`) | no (0.52, 0.00) | 0.76 | 1.59 | 0.60 |
 
-```bash
-python scripts/run_benchmark.py                     # all datasets, n = 10 25 50 100, 100 repeats
-python scripts/run_benchmark.py --datasets fish --repeats 20 --out results/quick.csv
-python scripts/summarize_benchmark.py               # tables + figures
-```
+What the benchmark established, in order of how surprising it is:
 
-A task is one (dataset, design, n, repeat); all estimators see the same labeled sample.
-Results are appended as tasks finish, so an interrupted run resumes where it stopped.
+1. **Accurate detectors break design-based intervals.** On Channel Islands, 96% of images
+   have f = g exactly, so at n = 25 the labeled residuals are often all zero and PPI's
+   interval has zero width (coverage 0.54 at n = 25, 0.31 at n = 10). A weak conjugate prior
+   on the residual variance (two pseudo-observations at a Poisson variance g + 0.5;
+   `countcal/approaches/hybrid.py`) fixes it (0.92) without widening intervals elsewhere.
+2. **Letting the unlabeled detector counts inform a Bayesian model makes it confidently
+   wrong when it is misspecified.** The joint generative model covers 0.00–0.33 on Serengeti
+   and is biased up to −26%; the same model fit only to p(f | g) ("cut") is unbiased.
+3. **Labeling chosen by detector count makes misspecified models biased, and more labels do
+   not help.** On rays, model-based bias under PPS stays at −5% to −17% from n = 10 to 100;
+   under random labeling it vanishes. Selection on g is ignorable in theory; in practice it
+   turns misspecification into bias. DISCount/PPI remain unbiased under PPS.
+4. **Stratifying the labels on g beats importance sampling on g.** √-allocation strata on g
+   (Neyman allocation if Var(f | g) ∝ g + 1) with the regression estimator have 0.60–0.91×
+   the RMSE of random labeling + PPI on every one of the 13 datasets; PPS ∝ g + 0.5 with
+   DISCount-CV is worse than random labeling on 5 of 13 (up to 1.45× on rays). A
+   pilot-based Neyman allocation adds nothing over the √ heuristic.
+5. **Fully Bayesian calibrated models keep coverage everywhere but are over-conservative**
+   (coverage ~0.98, intervals 1.5–2× wider than PPI) even though their point estimates
+   are competitive (RMSE 0.87× under stratified labeling) — their intervals, not their
+   estimates, are the gap to close.
+6. **Heavy tails the detector cannot see** (Serengeti herds at threshold 0.5, where 1% of
+   images carry most of the residual variance) limit every method; stratification and the
+   variance prior bring coverage to 0.88, but no interval rule can see herds that are not in
+   the sample. The detector's own confidence profile (counts at several thresholds) *does*
+   locate them — the most promising next step (see `docs/way_forward.md`).
+7. Earlier findings that still hold: the Poisson GLM is a GREG estimator in disguise
+   (design-unbiased under SRS even when wrong; the NegBin GLM is not), and the population
+   *max* is only as good as the model's tails, so it was dropped from the objective.
 
 ## Datasets
 
 | name | source | N | mean f | mean g | notes |
 |---|---|---|---|---|---|
-| `fish` | `data/raw/fish_discount_f_g_2025-11-19.json` | 658 | 9.14 | 7.44 | detector undercounts; 15 days of clips |
-| `rays` | `data/raw/rays_maria_frame_counts.csv` (Maria) | 1763 | 1.14 | 0.72 | video frames, 6 sites / 16 videos; detector misses most rays in 3 videos |
-| `serengeti_md_t10/t20/t50` | Snapshot Serengeti boxes (LILA) + MegaDetector v5a | 1845 | 2.66 | 2.89 / 2.57 / 2.16 | 9 camera sites, season 1; predicted count = animal detections above confidence 0.1 / 0.2 / 0.5; max true count 29 |
-| `synth_well_specified` | simulated | 1000 | 5.95 | 5.27 | the generative detection model holds exactly |
-| `synth_crowding` | simulated | 1000 | 6.02 | 3.04 | detection probability falls with crowding |
-| `synth_double_count` | simulated | 1000 | 3.87 | 4.61 | duplicate detections: detector overcounts |
-| `synth_zero_inflated` | simulated | 1000 | 3.40 | 3.39 | 62% empty images that attract false positives |
+| `fish` | DISCount-style fish clips (`data/raw/fish_discount_f_g_2025-11-19.json`) | 658 | 9.14 | 7.44 | detector undercounts; 15 days |
+| `rays` | Maria's video frames (`data/raw/rays_maria_frame_counts.csv`) | 1763 | 1.14 | 0.72 | 6 sites, 16 videos; detector misses most rays in 3 videos |
+| `serengeti_md_t10/t20/t50` | Snapshot Serengeti boxes (LILA) + MegaDetector v5a run here | 1845 | 2.66 | 2.89 / 2.57 / 2.16 | 9 sites; detections ≥ 0.1 / 0.2 / 0.5 confidence; herds up to 29 |
+| `cfc_baseline`, `cfc_baselinepp` | Caltech Fish Counting (Kay et al. 2022), per-clip sonar counts | 1085 | 5.05 | 4.70 / 4.75 | 5 rivers; two trackers; counts up to 80 (Nushagak) |
+| `wcs_md_t20` | WCS Camera Traps boxes + published MegaDetector v5a results | 2657 | 3.86 | 4.58 | 5 high-count sites (peccary herds); detector over-counts at some sites, under-counts at others |
+| `cict_md_t20` | Channel Islands Camera Traps boxes + MegaDetector v5a | 2000 | 0.59 | 0.62 | 60 sites, 47% empty; detector nearly exact |
+| `synth_well_specified` | simulated | 1000 | 5.95 | 5.27 | generative detection model holds |
+| `synth_crowding` | simulated | 1000 | 6.02 | 3.04 | detection falls with crowding |
+| `synth_double_count` | simulated | 1000 | 3.87 | 4.61 | duplicate detections |
+| `synth_zero_inflated` | simulated | 1000 | 3.40 | 3.39 | 62% empty images with false positives |
 
-Each dataset is treated as a fixed finite population; the estimand is its mean (or max)
-true count over all N images, labeled and unlabeled.
-
-Caveats: MegaDetector's training data includes Snapshot Serengeti, so the detector is
-better there than on a new camera network. The Serengeti bounding-box release covers
-images that volunteers tagged as containing animals, so only 4% of these images have no
-boxes; 26 selected images are missing from the LILA mirror and are excluded
-(`data/raw/serengeti/unavailable_images.txt`). Rays site names are lower-cased in `data/processed/rays.csv`
-because the raw file mixes `Pescador`/`pescador` and `Rincon`/`rincon`.
+Each is built by a script in `scripts/` (`prepare_existing.py`, `prepare_serengeti.py`,
+`prepare_cfc.py`, `prepare_lila.py`) from `data/raw/` into `data/processed/<name>.csv`
+(`image_id, site, true_count, pred_count`). Caveats: MegaDetector's training data includes
+the LILA datasets, so it is better on them than on new cameras; Caltech Camera Traps was
+checked and left out (one animal per image, counted correctly); rays site names are
+lower-cased (the raw file mixes `Pescador`/`pescador`); NACTI and the full Serengeti
+MegaDetector results are kept outside git (over GitHub's 100 MB limit).
 
 ## Methods
 
-Labeling designs (`countcal/designs.py`):
+Every estimator is registered in `countcal/methods.py`; families live in separate modules:
 
-- `srs` — simple random sample of n images without replacement.
-- `pps` — n draws with replacement with probability ∝ g + 0.5 (DISCount-style importance
-  sampling; the 0.5 floor lets images with g = 0 be drawn, which the Hansen–Hurwitz
-  estimator needs to stay unbiased when the detector misses everything in an image).
-
-Estimators (`countcal/estimators.py`):
-
-| design | method | what it is |
+| module | family | methods |
 |---|---|---|
-| SRS | `sample_mean` | mean of labeled f (ignores the detector) |
-| SRS | `ppi` | mean(g, all images) + mean(f − g, labeled) — PPI / difference estimator |
-| SRS | `ppi_pp` | same with g scaled by the fitted slope — PPI++ / GREG regression estimator |
-| PPS | `hh` | Hansen–Hurwitz, mean of f / (N q) — DISCount |
-| PPS | `hh_cv` | mean(g) + Hansen–Hurwitz on f − g — DISCount with control variate, = PPI under PPS |
-| both | `poisson` | f ~ Poisson(exp(α + β log(g + 1))), fit on labeled images |
-| both | `negbin` | same with a negative binomial (overdispersion φ) |
-| both | `gen_joint` | generative model: f ~ NB(μ, φ), detections ~ Binomial(f, p), false positives ~ Poisson(λ); likelihood = labeled p(f, g) + unlabeled p(g) |
-| both | `gen_cut` | same model, likelihood = labeled p(f \| g) only (unlabeled g's do not inform the parameters) |
+| `estimators.py` | design-based | `sample_mean`, `ppi`, `ppi_pp` (SRS); `hh`, `hh_cv` (PPS: DISCount) |
+| `estimators.py` | model-based (Stan) | `poisson`, `negbin` (calibration GLMs), `gen_joint`, `gen_cut` (generative detection model with misses and false positives; joint vs conditional likelihood) |
+| `approaches/calibrated.py` | calibrated Bayes; pseudo-likelihood; model-assisted | `cb_ps`, `cb_ps_site` (NB curve + partially pooled per-g deviations [+ site effects]); `poisson_w` (design-weighted likelihood); `ma_poisson`, `ma_flex` (GREG with Poisson / flexible cross-fitted working model) |
+| `approaches/bnp.py` | less-parametric Bayes | `polya_ps`, `polya_ps_cal` (stratified Pólya posterior), `mono_nb` (monotone NB calibration curve) |
+| `approaches/intervals.py` | small-sample intervals | t, jackknife, Hall skew-corrected and bootstrap-t intervals for the design-based and model-assisted estimators |
+| `approaches/designs_learned.py` | learned designs | designs `strat_prop`, `strat_sqrt`, `strat_lin`, `neyman2`, `pps_sqrt` with stratified, two-phase and Hansen–Hurwitz estimators |
+| `approaches/hybrid.py` | design-based + variance prior | `ppi_vp`, `ppi_pp_jack_vp`, `hh_cv_vp`, `ma_poisson_jack_vp`, `st_*_vp`, `tp_naive_diff_vp` |
 
-Design-based intervals are 90% normal-theory intervals (with the finite-population
-correction under SRS). Model-based intervals are central 90% posterior intervals of the
-finite-population quantity (labeled f known, unlabeled f drawn from the posterior
-predictive). Only model-based methods estimate the max.
+Designs (`countcal/designs.py` + `approaches/designs_learned.py`): `srs` (random), `pps`
+(with replacement, ∝ g + 0.5, DISCount-style), and the learned designs above. All select on
+g only (the two-phase design also on its own phase-1 labels), so they are ignorable for any
+model that conditions on g; model-based methods run under every design.
 
-Two properties worth knowing when reading the results:
+Design-based intervals are normal or t intervals (finite-population corrected under SRS);
+model-based intervals are central 90% posterior intervals of the finite-population mean
+(labeled counts known, unlabeled counts drawn from the posterior predictive).
 
-- **The Poisson GLM is a GREG estimator in disguise.** With a log link and a free
-  intercept, the maximum-likelihood fit satisfies Σ_labeled f = Σ_labeled λ̂, so the
-  plug-in estimate of the population mean is mean(λ̂, all images) +
-  mean(f − λ̂, labeled): a difference estimator with the GLM as the working model. Under
-  SRS it is therefore approximately design-unbiased even when the Poisson model is wrong.
-- **Selection on g is ignorable only for the right likelihood.** Under PPS the labeled
-  images are chosen using g, so p(f | g) is unaffected but the labeled p(f) is not. The
-  joint model is valid only if the unlabeled images' p(g) is included (`gen_joint`), and
-  the conditional model (`gen_cut`) drops p(g) everywhere. The old `generative_model.stan`
-  option `use_unlabeled_likelihood = 0` kept the labeled p(f, g) and dropped the unlabeled
-  p(g), which is biased under importance sampling.
+## Layout
+
+```
+countcal/            package: data.py, designs.py, methods.py (registry), estimators.py,
+                     benchmark.py, approaches/ (one module per family), stan/ (Stan models)
+scripts/             prepare_*.py (datasets), run_benchmark.py, leaderboard.py,
+                     summarize_benchmark.py, check_sampler.py
+data/raw/, data/processed/
+results/             benchmark.csv (every replicate), leaderboard.md, summary.{md,csv},
+                     figures/, pilot_*_leaderboard.md (exploratory pilots)
+docs/way_forward.md  the framing and next steps
+tests/               pytest (`-m slow` also fits the Stan models)
+notebooks/           exploration of the fish and rays data
+archive/             the February 2026 code, models, notebooks and plots
+```
+
+## Setup and running
+
+```bash
+pip install -e ".[dev]"
+python -c "import cmdstanpy; cmdstanpy.install_cmdstan()"   # once
+python -m pytest -m "not slow"
+
+python scripts/run_benchmark.py --datasets fish --methods ppi cb_ps --repeats 20 --out results/quick.csv
+python scripts/leaderboard.py --results results/benchmark.csv
+python scripts/summarize_benchmark.py
+```
+
+A benchmark task is one (dataset, design, n, repeat); every estimator applicable to the
+design sees the same labeled sample. `run_benchmark.py` skips (dataset, design, n, repeat,
+method) combinations already in `--out` or `--also-done`, so runs resume and new methods
+can be added incrementally.
+
+## Notes on the benchmark
+
+- `gen_joint` was not run on `cfc_baseline`, `wcs_md_t20` and `cict_md_t20` (expensive, and
+  it had already failed on the other ten datasets with coverage 0.00–0.60).
+- Under PPS, n counts draws; a few draws repeat an image, so PPS uses slightly fewer
+  distinct labels than n (up to 10% at n = 100), which disadvantages it slightly.
+- The variance prior's settings (2 pseudo-observations, Poisson variance g + 0.5) were
+  fixed before running the benchmark, not tuned on it. The intervals it gives are slightly
+  conservative (mean coverage 0.94), so there is room to tighten them with a principled
+  choice validated on held-out datasets.
+- MCMC: fewer than 4% of fits have R-hat > 1.05; `scripts/check_sampler.py` re-ran the
+  worst-diverging cell with `adapt_delta = 0.95` without changing its results.
 
 ## Changes from the February 2026 code (now in `archive/`)
 
-- **PPI baseline fixed.** The old simulation passed only the *unlabeled* images' detector
-  counts as PPI's prediction term. Under importance sampling the unlabeled set is
-  depleted of high-g images, so PPI was biased low, increasingly so with n (−0.54 at
-  n = 100, coverage 0.30). PPI now uses g for all images.
-- **Importance sampling is now with replacement**, matching the Hansen–Hurwitz/DISCount
-  estimator. `rng.choice(replace=False, p=q)` does not give inclusion probabilities ∝ q.
-- **Generative model posterior predictive fixed.** Missed animals were drawn independently
-  of the detected count, which is only right for a Poisson. Under the negative binomial
-  they are correlated through the latent rate, so the model now updates λ given the
-  detected count before drawing the misses (matters most for the max).
-- `efficient_generative_model.stan` (out of sync) and `generative_model.stan` are merged
-  into `countcal/stan/generative_detection.stan`, which collapses unlabeled images to
-  unique g values and vectorises the likelihood, and has the `w_marginal` switch above.
-- Calibration GLMs use log(g + 1) instead of log(g + 1e-6), so images with g = 0 are not
-  forced to have a true count near zero.
-- False-positive prior changed from Gamma(2, 1) (zero density at 0) to Exponential(0.5).
-- The PPI "max via the 0.99999 quantile" is dropped: it is not an estimator of the max.
-- Stan executables are no longer committed (they were macOS arm64 binaries).
-- `run_simulation_ppi_discount_poisson_calibration.py` and `visualize_simulation.py` are
-  replaced by `scripts/run_benchmark.py` and `scripts/summarize_benchmark.py`.
-
-## Results
-
-Full tables: [`results/summary.md`](results/summary.md); per-dataset figures (relative RMSE,
-coverage, interval width vs n, both designs): `results/figures/<dataset>.png`; coverage
-heatmap at n = 25: `results/figures/coverage.png`. 100 repeats per cell, so a coverage
-estimate has a standard error of about 0.03.
-
-1. **Labeling chosen by detector count (PPS) makes model-based estimators biased when the
-   model is wrong, and more labels do not fix it.** On `rays`, every model-based estimator
-   is unbiased under SRS (bias ≤ 0.4% at n = 100), but under PPS the GLMs are biased by
-   −5% to −9% and the generative models by −9% to −17% at every n from 10 to 100;
-   generative coverage falls from 0.92–0.98 at n = 10 to 0.22–0.24 at n = 100. The detector
-   misses rays in some videos much more than others, and PPS under-samples the frames
-   where it saw nothing (46% of frames, 19% of draws), so the fitted p(f | g) is wrong
-   exactly where it is extrapolated. `synth_zero_inflated` shows
-   the same for the GLMs (+9% under PPS at n = 100 vs +2% under SRS), and Serengeti a
-   milder version (GLMs +2% under PPS vs ≤ 1.2% under SRS at n = 100). The design-based
-   estimators (`hh`, `hh_cv`) are unbiased under PPS on every dataset. Selection on g is
-   ignorable in theory; in practice it turns misspecification into bias.
-2. **The unlabeled detector counts make the joint generative model confidently wrong
-   when it is misspecified; the cut model is robust.** With duplicate detections
-   (`synth_double_count`, SRS) the joint model is biased +14% at n = 25 with coverage 0.07;
-   the cut model, which uses the same model but only p(f | g), is unbiased with coverage
-   0.88. Same direction on `synth_zero_inflated` (+7.7% vs +1.1%) and under PPS on
-   `synth_crowding` and `fish`. **On real camera-trap data the effect is large:** on all
-   three Serengeti detectors the joint model is biased low under either design (−13% to
-   −22% for n ≤ 50 at thresholds 0.1 and 0.2; −5% to −26% at 0.5), with coverage as low
-   as 0.00–0.33, while the cut model's bias stays within about ±2%. When the model is right the joint model is the most
-   efficient estimator (smallest RMSE on `synth_well_specified`, and the narrowest
-   intervals under PPS).
-3. **The Poisson GLM behaves like a GREG estimator under SRS; the NegBin GLM does not.**
-   On `synth_zero_inflated` (SRS) the Poisson GLM's bias shrinks from +28% at n = 10 to
-   +2% at n = 100 although the model is wrong; the NegBin GLM (non-canonical link) stays
-   at +16%. The Poisson GLM's *intervals* are still model-based and undercover when the
-   model is wrong (0.66–0.86 on `synth_crowding` and `synth_zero_inflated`); on `fish` and
-   `rays` they are conservative (0.94–1.00).
-4. **Design-based intervals undercover at small n.** At n = 10, sample-mean and PPI
-   intervals cover 0.79–0.91 and PPI++ 0.69–0.85 (nominal 0.90); by n = 25–50 they are
-   close to nominal. PPI is *worse* than labels-only on `rays` because the detector is
-   badly calibrated there (f − g has more variance than f); PPI++ fixes that.
-5. **The population max is only as good as the model's tails.** The generative models
-   cover the max when they are well specified (1.00 on `synth_well_specified` and
-   `synth_zero_inflated`), but under SRS coverage is near 0 on `rays` (true max 4, predicted
-   6–8) and 0.43–0.62 on `fish`, and on Serengeti they mostly underestimate the max (29),
-   by up to a third. The GLMs overshoot on `rays` but do reasonably on Serengeti (Poisson coverage
-   0.75–0.99). No method is a reliable max estimator across the real datasets.
-6. **Real counts are heavy-tailed, and normal-theory intervals suffer.** Serengeti has a
-   few herds of 20–29 animals that the detector undercounts badly at threshold 0.5. There
-   the design-based intervals cover only 0.73–0.80 at n = 100 (`hh`, `hh_cv`, `ppi`), and
-   the cut generative model's intervals are too narrow under SRS (0.61–0.72 at n = 100)
-   although it is unbiased. Across the five real datasets, the Poisson and NegBin GLMs are
-   the only estimators whose intervals stay near or above nominal everywhere (0.86–1.00
-   and 0.88–1.00), at the cost of intervals about 1.4–1.8× wider than PPI's (Poisson;
-   NegBin wider still).
-
-MCMC: fewer than 4% of fits have R-hat > 1.05. The cut generative model on
-`synth_zero_inflated` has a few divergent transitions in most fits (median 3 of 1000
-draws), a sign that its posterior is weakly identified without the marginal likelihood.
-Re-running that cell on the same samples with `adapt_delta = 0.95`
-(`scripts/check_sampler.py`, output in `results/sampler_check_synth_zero_inflated_gen_cut.csv`)
-cuts the share of fits with divergences (e.g. 0.97 → 0.62 under PPS at n = 100, 0.94 →
-0.35 under SRS) but leaves bias unchanged to three decimals and moves coverage by at most
-0.04, within Monte Carlo error, so the divergences do not drive that cell's results.
-
-## Datasets we would like to add
-
-These are public but could not be fetched from the environment the benchmark was built in:
-
-- **MegaDetector results for LILA camera-trap datasets** (lila.science) — would add the
-  LILA datasets with bounding boxes (Caltech Camera Traps, Channel Islands, ENA24,
-  Missouri, NACTI, WCS, all Snapshot Serengeti seasons) without re-running MegaDetector.
-- **Caltech Fish Counting** (Kay et al., ECCV 2022; data.caltech.edu) — sonar fish counts
-  per clip with the published tracker's counts, across five rivers.
-- **DISCount's bird-roost radar and damaged-building data** (Perez et al., AAAI 2024).
+- PPI baseline fixed (it used only the unlabeled images' g as the prediction term, biasing
+  it low under importance sampling); importance sampling is with replacement; the
+  generative model's posterior predictive draws missed animals conditional on detections;
+  generative models merged and vectorised; calibration GLMs use log(g + 1); the PPI "max"
+  hack is dropped; compiled Stan binaries are no longer committed.

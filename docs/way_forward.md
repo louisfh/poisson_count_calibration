@@ -85,10 +85,74 @@ most small-n undercoverage for the design-based / model-assisted estimators. Hea
 the detector misses (Serengeti herds at threshold 0.5) cannot be fixed by any interval rule:
 the herds are rarely in the sample.
 
-## Results
+### 4. Design-based point, Bayesian variance (what worked best)
 
-See `results/leaderboard.md` (filled in by the benchmark).
+The surprise of the full benchmark was that the dominant failure of design-based intervals
+on real data is not bias but the *variance estimate*: with an accurate detector most
+residuals f − g are exactly 0, so a small labeled sample often has zero residual variance
+and the interval collapses (Channel Islands: coverage 0.31 at n = 10, 0.54 at n = 25).
+Model-based intervals never collapse because their variance has a prior. The hybrid keeps
+the design-based point estimate and puts a conjugate prior on the residual variance — two
+pseudo-observations at the variance a Poisson count would have at the detector's count
+(`countcal/approaches/hybrid.py`). It is negligible when the sample variance is
+informative and decisive when it is not. Combined with stratifying the labels on g this is
+the best procedure found.
+
+## Results (13 datasets, 100 repeats per cell; `results/leaderboard.md`)
+
+| procedure | keeps coverage everywhere? | width vs SRS + PPI | RMSE vs SRS + PPI |
+|---|---|---|---|
+| stratified on g (√ alloc.) + regression + variance prior | yes (min 0.84) | 0.96 | 0.74 |
+| SRS + PPI++ jackknife + variance prior | yes (min 0.82) | 1.06 | 0.89 |
+| stratified on g + calibrated Bayes (`cb_ps`) | yes (min 0.83) | 1.51 | 0.87 |
+| PPS + calibrated Bayes with sites | yes, 9 site datasets (min 0.89) | 1.67 | 1.01 |
+| SRS + PPI (reference) | no (min 0.54) | 1.00 | 1.00 |
+| PPS + DISCount-CV | no (min 0.74) | 0.89 | 0.90 |
+| SRS + generative, cut | no (min 0.59) | 0.82 | 0.87 |
+| PPS + generative, joint | no (min 0.00) | 0.76 | 1.59 |
+
+Reading across the families:
+
+- **Pure model-based** methods are efficient when right and badly wrong when not, and the
+  two ways they go wrong are specific and reproducible: labeling driven by g (bias that does
+  not shrink with n) and learning from the unlabeled images' g (confidently wrong).
+- **Calibrated Bayes** (flexible in the design variable, sites as random effects) largely
+  fixes both: it keeps coverage on every real dataset under every design, and on all 13
+  under stratified labeling (under SRS and PPS it is still biased upward on the simulated
+  zero-inflated population, +7% to +34% for n ≥ 25, where the curve's shape near g = 0 is
+  badly wrong). Its point
+  estimates are as good as the best design-based ones (RMSE 0.87× PPI under stratified
+  labeling), but its intervals are 1.5–2× too wide (coverage ~0.98).
+- **Model-assisted** estimators are design-unbiased by construction; with small-sample
+  (jackknife / t) intervals they nearly pass, and the variance prior takes them over the line.
+- **The design matters as much as the estimator**: stratifying on g with √ allocation
+  improves every estimator; PPS ∝ g + 0.5 often hurts.
 
 ## Recommended next steps
 
-(Written after the full benchmark; see the README.)
+1. **Use now**: stratify the labeling on g (√ allocation, ≤ 8 strata of contiguous g),
+   estimate with the stratified regression (PPI++/GREG) estimator, and use the variance-prior
+   interval. It needs no MCMC, keeps coverage on all 13 datasets, and has ~26% lower RMSE than
+   random labeling + PPI at the same labeling cost.
+2. **Make calibrated Bayes as narrow as it is accurate.** The Bayesian models' estimates are
+   competitive; their posteriors are over-dispersed. Candidates: tighter / data-calibrated
+   priors on the per-g deviation scale and the NB dispersion, a smoothness (random-walk /
+   P-spline) prior across g instead of exchangeable deviations, and checking calibration with
+   held-out datasets rather than tuning on the benchmark. This is the step that would make
+   the fully Bayesian route — which also gives per-site estimates and posterior predictive
+   checks for free — the recommended one.
+3. **Use the detector's whole output, not one thresholded count.** On Serengeti at threshold
+   0.5, the herds that break every method are exactly the images where the count at a low
+   confidence threshold far exceeds the count at the high one (residual SD 3.9 vs 0.4).
+   Stratifying on that gap cut the design SE by 20–30% in a pilot and lifted coverage. Add
+   auxiliary detector outputs to `CountData` (counts at several thresholds for the camera-trap
+   datasets, the second tracker for CFC) and use them as design variables and as covariates.
+4. **Per-site (small-area) estimates.** For multi-site surveys the per-site means are often
+   the real target; evaluate per-site coverage, where partial pooling across sites should
+   beat any design-based method.
+5. **Paper framing.** Calibrated Bayes for ML-assisted counting: (i) two reproducible
+   failure modes of model-based inference (detector-driven labeling; learning from unlabeled
+   predictions), (ii) a failure mode of design-based inference that gets *worse* as detectors
+   improve (zero residual variance), and (iii) a design + estimator + variance-prior procedure
+   that keeps coverage on every dataset at lower RMSE, with the fully Bayesian version as the
+   open problem.
