@@ -4,3 +4,4 @@ Each module registers its methods with countcal.methods.register when imported.
 """
 
 from . import calibrated  # noqa: F401
+from . import intervals  # noqa: F401

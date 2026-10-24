@@ -87,18 +87,34 @@ def _poisson_w(d, s, seed, stan_kwargs):
 # --- model-assisted ----------------------------------------------------------------------
 
 
-def fit_poisson_glm(x, y, w, iters: int = 50) -> np.ndarray:
-    """Weighted Poisson regression log mu = a + b x by IRLS; returns (a, b)."""
-    X = np.column_stack([np.ones_like(x), x])
-    beta = np.array([np.log(max(np.average(y, weights=w), 1e-3)), 0.0])
-    for _ in range(iters):
-        mu = np.exp(np.clip(X @ beta, -30, 30))
-        H = X.T @ (X * (w * mu)[:, None]) + 1e-8 * np.eye(2)
-        step = np.linalg.solve(H, X.T @ (w * (y - mu)))
-        beta = beta + step
-        if np.max(np.abs(step)) < 1e-8:
-            break
-    return beta
+SLOPE_MAX = 4.0
+
+
+def fit_poisson_glm(x, y, w) -> np.ndarray:
+    """Weighted Poisson regression log mu = a + b x, MAP with the Bayesian models' prior on the
+    slope (b ~ N(1, 1), 0 <= b <= SLOPE_MAX) and a flat intercept; returns (a, b).
+
+    For fixed b the intercept has the closed form a(b) = log(sum w y / sum w exp(b x)); the
+    profile log-likelihood is concave in b, so a bounded scalar search finds the optimum.
+    Weights are rescaled to sum to the number of observations, so the prior matters only at
+    small n. (Unpenalised IRLS diverges at small n when the labeled g are all equal or nearly
+    separate the counts, and an unpenalised slope can reach the bound and extrapolate
+    (g + 1)^4 to unlabeled images.)"""
+    from scipy.optimize import minimize_scalar
+
+    w = w * len(w) / w.sum()
+    swy = float(np.sum(w * y))
+    if swy <= 0:  # no labeled animals: predict ~0 everywhere, the residual term does the rest
+        return np.array([np.log(1e-6), 0.0])
+
+    def intercept(b):
+        return np.log(swy) - np.log(np.sum(w * np.exp(b * (x - x.max())))) - b * x.max()
+
+    if np.ptp(x) == 0:
+        return np.array([intercept(1.0), 1.0])
+    res = minimize_scalar(lambda b: -(swy * intercept(b) + b * np.sum(w * y * x)) + 0.5 * (b - 1.0) ** 2,
+                          bounds=(0.0, SLOPE_MAX), method="bounded", options={"xatol": 1e-7})
+    return np.array([intercept(res.x), res.x])
 
 
 class PoissonCurve:
