@@ -208,6 +208,11 @@ estimate has a standard error of about 0.03.
 MCMC: fewer than 4% of fits have R-hat > 1.05. The cut generative model on
 `synth_zero_inflated` has a few divergent transitions in most fits (median 3 of 1000
 draws), a sign that its posterior is weakly identified without the marginal likelihood.
+Re-running that cell on the same samples with `adapt_delta = 0.95`
+(`scripts/check_sampler.py`, output in `results/sampler_check_synth_zero_inflated_gen_cut.csv`)
+cuts the share of fits with divergences (e.g. 0.97 → 0.62 under PPS at n = 100, 0.94 →
+0.35 under SRS) but leaves bias unchanged to three decimals and moves coverage by at most
+0.04, within Monte Carlo error, so the divergences do not drive that cell's results.
 
 ## Datasets we would like to add
 
