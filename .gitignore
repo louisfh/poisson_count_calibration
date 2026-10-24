@@ -17,3 +17,9 @@ __pycache__/
 
 # Intermediate benchmark output
 results/*.part
+
+# Raw LILA MegaDetector results over GitHub's 100MB limit (kept locally only)
+data/raw/lila_md_results/nacti_mdv5a.0.0_results.json.zip
+data/raw/lila_md_results/snapshot-serengeti-2025-03-22-v1000.0.0-redwood_detections.threshold.json.zip
+# Stray nested clone
+/poisson_count_calibration/
