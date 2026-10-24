@@ -209,20 +209,29 @@ def _ci(point, var, df, use_t=True) -> dict:
     return {"point": float(point), "lo": float(point - q * se), "hi": float(point + q * se)}
 
 
-def _stratified_mean_var(y, strata_of_y, N_h, n_h, N_pop):
-    """Stratified estimate of the population mean of y and its variance + Satterthwaite df."""
+def _stratified_mean_var(y, strata_of_y, N_h, n_h, N_pop, prior=None):
+    """Stratified estimate of the population mean of y and its variance + Satterthwaite df.
+
+    prior: optional (k, s2_prior_h) — a conjugate prior on each stratum's variance worth k
+    pseudo-observations at s2_prior_h (see countcal/approaches/hybrid.py)."""
     H = len(N_h)
     W = N_h / N_pop
     means = np.array([y[strata_of_y == h].mean() if n_h[h] else 0.0 for h in range(H)])
     s2 = np.array([y[strata_of_y == h].var(ddof=1) if n_h[h] > 1 else 0.0 for h in range(H)])
+    dof = np.maximum(n_h - 1, 0).astype(float)
+    if prior is not None:
+        k, s2_prior = prior
+        s2 = (dof * s2 + k * s2_prior) / (dof + k)
+        dof = dof + k
     a = W ** 2 * (1 - n_h / N_h) / np.maximum(n_h, 1)
     var = float((a * s2).sum())
-    den = ((a * s2) ** 2 / np.maximum(n_h - 1, 1)).sum()
+    den = ((a * s2) ** 2 / np.maximum(dof, 1)).sum()
     df = var ** 2 / den if den > 0 else max(n_h.sum() - H, 1)
     return float((W * means).sum()), var, df
 
 
-def _st(kind: str, use_t=True):
+def _st(kind: str, use_t=True, var_prior: float | None = None):
+    """var_prior: weight k of the per-stratum variance prior (None = no prior)."""
     def run(d, s, seed, stan_kwargs):
         f, g, N = d.f, d.g, d.N
         m = s.meta
@@ -244,7 +253,12 @@ def _st(kind: str, use_t=True):
         else:  # Poisson working model, weights N_h / n_h
             beta = fit_curve(g[idx], f[idx], w)
             pred_all, pred_lab = _poisson_curve(beta, g), _poisson_curve(beta, g[idx])
-        mu, var, df = _stratified_mean_var(f[idx] - pred_lab, sh, m["N_h"], m["n_h"], N)
+        prior = None
+        if var_prior is not None:
+            strata = m["strata"]
+            v = g.astype(float) + 0.5  # Poisson variance at the detector count (hybrid.py)
+            prior = (var_prior, np.array([v[strata == h].mean() for h in range(len(m["N_h"]))]))
+        mu, var, df = _stratified_mean_var(f[idx] - pred_lab, sh, m["N_h"], m["n_h"], N, prior)
         return {"mean": _ci(pred_all.mean() + mu, var, df, use_t)}
     return run
 

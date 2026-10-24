@@ -24,6 +24,7 @@ from scipy.stats import t as student_t
 
 from ..designs import Sample
 from ..methods import Method, register
+from .designs_learned import _ST, _st
 from .intervals import LEVEL, Components, comp_hh_cv, comp_ppi, comp_ppi_pp, ma_poisson_comp
 
 K_PRIOR = 2.0
@@ -76,3 +77,11 @@ register(Method("ppi_pp_jack_vp", jackknife_vp(comp_ppi_pp), ("srs",), "regressi
 register(Method("hh_cv_vp", plugin_vp(comp_hh_cv), ("pps",), "difference (PPI), variance prior", FAMILY))
 register(Method("ma_poisson_jack_vp", jackknife_vp(ma_poisson_comp), ("srs", "pps"),
                 "model-assisted (Poisson), jackknife + variance prior", FAMILY))
+
+# Stratified designs (designs_learned.py): the same prior on each stratum's residual variance,
+# centred on the stratum's mean Poisson variance g + 0.5.
+register(Method("st_diff_vp", _st("diff", var_prior=K_PRIOR), _ST, "stratified: difference, variance prior", FAMILY))
+register(Method("st_reg_vp", _st("reg", var_prior=K_PRIOR), _ST, "stratified: regression, variance prior", FAMILY))
+register(Method("st_ma_vp", _st("ma", var_prior=K_PRIOR), _ST, "stratified: model-assisted, variance prior", FAMILY))
+register(Method("tp_naive_diff_vp", _st("diff", var_prior=K_PRIOR), ("neyman2",),
+                "two-phase, pooled: difference, variance prior", FAMILY))
