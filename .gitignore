@@ -26,3 +26,6 @@ data/raw/lila_md_results/snapshot-serengeti-2025-03-22-v1000.0.0-redwood_detecti
 
 # Agent worktrees and local Claude settings
 /.claude/
+
+# In-progress benchmark output (merged into results/benchmark.csv when a run finishes)
+results/*.running.csv

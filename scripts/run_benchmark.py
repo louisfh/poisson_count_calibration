@@ -49,6 +49,9 @@ def main():
     ap.add_argument("--methods", nargs="+", default=None, help="default: all applicable")
     ap.add_argument("--workers", type=int, default=os.cpu_count())
     ap.add_argument("--out", default="results/benchmark.csv")
+    ap.add_argument("--also-done", nargs="*", default=[],
+                    help="other result CSVs whose rows count as done (e.g. write a run to a scratch file "
+                         "while skipping what results/benchmark.csv already has)")
     args = ap.parse_args()
 
     _quiet()
@@ -59,10 +62,11 @@ def main():
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     done = set()  # (dataset, design, n, rep, method) already in the output
-    if out.exists():
-        with open(out) as fp:
-            for r in csv.DictReader(fp):
-                done.add((r["dataset"], r["design"], int(r["n"]), int(r["rep"]), r["method"]))
+    for path in [out, *map(Path, args.also_done)]:
+        if path.exists():
+            with open(path) as fp:
+                for r in csv.DictReader(fp):
+                    done.add((r["dataset"], r["design"], int(r["n"]), int(r["rep"]), r["method"]))
     tasks = []
     for ds in datasets:
         N = data.load(ds).N
