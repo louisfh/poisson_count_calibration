@@ -37,7 +37,7 @@ def run_task(dataset: str, design: str, n: int, rep: int, methods: list[str] | N
              stan_kwargs: dict | None = None) -> list[dict]:
     d = datamod.load(dataset)
     seed = task_seed(dataset, design, n, rep)
-    s = designs.draw(design, d.g, n, np.random.default_rng(seed))
+    s = designs.draw(design, d.g, n, np.random.default_rng(seed), label=lambda idx: d.f[idx])
     truth = {"mean": float(d.f.mean()), "max": float(d.f.max())}
     base = {"dataset": dataset, "design": design, "n": n, "rep": rep, "n_unique": len(s.labeled)}
 

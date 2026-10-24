@@ -52,7 +52,14 @@ def pps(g: np.ndarray, n: int, rng: np.random.Generator, floor: float = PPS_FLOO
 DESIGNS = {"srs": srs, "pps": pps}
 
 
-def draw(design: str, g: np.ndarray, n: int, rng: np.random.Generator) -> Sample:
+def draw(design: str, g: np.ndarray, n: int, rng: np.random.Generator, label=None) -> Sample:
+    """label: optional oracle idx -> true counts f[idx], for adaptive designs (functions with
+    attribute adaptive = True) that choose later labels using earlier ones."""
     if design not in DESIGNS:
         raise ValueError(f"unknown design {design!r}")
-    return DESIGNS[design](g, n, rng)
+    fn = DESIGNS[design]
+    if getattr(fn, "adaptive", False):
+        if label is None:
+            raise ValueError(f"design {design!r} is adaptive and needs a label oracle")
+        return fn(g, n, rng, label)
+    return fn(g, n, rng)
