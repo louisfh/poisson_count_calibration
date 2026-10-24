@@ -165,7 +165,8 @@ estimate has a standard error of about 0.03.
    misses rays in some videos much more than others, and PPS under-samples the frames
    where it saw nothing (46% of frames, 19% of draws), so the fitted p(f | g) is wrong
    exactly where it is extrapolated. `synth_zero_inflated` shows
-   the same for the GLMs (+9% under PPS at n = 100 vs +2% under SRS). The design-based
+   the same for the GLMs (+9% under PPS at n = 100 vs +2% under SRS), and Serengeti a
+   milder version (GLMs +2% under PPS vs ≤ 1.2% under SRS at n = 100). The design-based
    estimators (`hh`, `hh_cv`) are unbiased under PPS on every dataset. Selection on g is
    ignorable in theory; in practice it turns misspecification into bias.
 2. **The unlabeled detector counts make the joint generative model confidently wrong
@@ -173,7 +174,10 @@ estimate has a standard error of about 0.03.
    (`synth_double_count`, SRS) the joint model is biased +14% at n = 25 with coverage 0.07;
    the cut model, which uses the same model but only p(f | g), is unbiased with coverage
    0.88. Same direction on `synth_zero_inflated` (+7.7% vs +1.1%) and under PPS on
-   `synth_crowding` and `fish`. When the model is right the joint model is the most
+   `synth_crowding` and `fish`. **On real camera-trap data the effect is large:** on all
+   three Serengeti detectors the joint model is biased low under either design (−13% to
+   −22% for n ≤ 50 at thresholds 0.1 and 0.2; −5% to −26% at 0.5), with coverage as low
+   as 0.00–0.33, while the cut model's bias stays within about ±2%. When the model is right the joint model is the most
    efficient estimator (smallest RMSE on `synth_well_specified`, and the narrowest
    intervals under PPS).
 3. **The Poisson GLM behaves like a GREG estimator under SRS; the NegBin GLM does not.**
@@ -188,8 +192,18 @@ estimate has a standard error of about 0.03.
    badly calibrated there (f − g has more variance than f); PPI++ fixes that.
 5. **The population max is only as good as the model's tails.** The generative models
    cover the max when they are well specified (1.00 on `synth_well_specified` and
-   `synth_zero_inflated`), but under SRS coverage is near 0 on `rays` (true max 4, predicted 6–8) and
-   0.43–0.62 on `fish` for the generative models. No method here is a reliable max estimator on real data.
+   `synth_zero_inflated`), but under SRS coverage is near 0 on `rays` (true max 4, predicted
+   6–8) and 0.43–0.62 on `fish`, and on Serengeti they mostly underestimate the max (29),
+   by up to a third. The GLMs overshoot on `rays` but do reasonably on Serengeti (Poisson coverage
+   0.75–0.99). No method is a reliable max estimator across the real datasets.
+6. **Real counts are heavy-tailed, and normal-theory intervals suffer.** Serengeti has a
+   few herds of 20–29 animals that the detector undercounts badly at threshold 0.5. There
+   the design-based intervals cover only 0.73–0.80 at n = 100 (`hh`, `hh_cv`, `ppi`), and
+   the cut generative model's intervals are too narrow under SRS (0.61–0.72 at n = 100)
+   although it is unbiased. Across the five real datasets, the Poisson and NegBin GLMs are
+   the only estimators whose intervals stay near or above nominal everywhere (0.86–1.00
+   and 0.88–1.00), at the cost of intervals about 1.4–1.8× wider than PPI's (Poisson;
+   NegBin wider still).
 
 MCMC: fewer than 4% of fits have R-hat > 1.05. The cut generative model on
 `synth_zero_inflated` has a few divergent transitions in most fits (median 3 of 1000
