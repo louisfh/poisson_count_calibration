@@ -55,3 +55,20 @@ def test_models_recover_mean_when_well_specified(method):
     r = E.fit_model(method, pop.f, pop.g, s, seed=3, chains=2)
     assert r["mean"]["lo"] <= pop.f.mean() <= r["mean"]["hi"]
     assert r["diag"]["max_rhat"] < 1.05
+
+
+def test_cfc_crossing_rule():
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("prepare_cfc", Path(__file__).parent.parent / "scripts" / "prepare_cfc.py")
+    cfc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cfc)
+    w, h = 100, 100
+    rows = [
+        (1, 1, 10, 50, 10, 10), (5, 1, 80, 50, 10, 10),   # crosses left -> right
+        (1, 2, 80, 20, 10, 10), (9, 2, 10, 20, 10, 10),   # crosses right -> left
+        (1, 3, 10, 80, 10, 10), (9, 3, 30, 80, 10, 10),   # stays on the left
+        (1, 4, 46, 10, 2, 2), (9, 4, 50, 10, 2, 2),       # crosses but moves < 0.05: stationary
+    ]
+    assert cfc.count_crossings(rows, w, h) == 2

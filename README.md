@@ -149,7 +149,48 @@ Two properties worth knowing when reading the results:
 
 ## Results
 
-See [`results/summary.md`](results/summary.md) and `results/figures/`.
+Full tables: [`results/summary.md`](results/summary.md); per-dataset figures (relative RMSE,
+coverage, interval width vs n, both designs): `results/figures/<dataset>.png`; coverage
+heatmap at n = 25: `results/figures/coverage.png`. 100 repeats per cell, so a coverage
+estimate has a standard error of about 0.03.
+
+1. **Labeling chosen by detector count (PPS) makes model-based estimators biased when the
+   model is wrong, and more labels do not fix it.** On `rays`, every model-based estimator
+   is unbiased under SRS (bias ≤ 0.4% at n = 100), but under PPS the GLMs are biased by
+   −5% to −9% and the generative models by −9% to −17% at every n from 10 to 100;
+   generative coverage falls from 0.92–0.98 at n = 10 to 0.22–0.24 at n = 100. The detector
+   misses rays in some videos much more than others, and PPS under-samples the frames
+   where it saw nothing (46% of frames, 19% of draws), so the fitted p(f | g) is wrong
+   exactly where it is extrapolated. `synth_zero_inflated` shows
+   the same for the GLMs (+9% under PPS at n = 100 vs +2% under SRS). The design-based
+   estimators (`hh`, `hh_cv`) are unbiased under PPS on every dataset. Selection on g is
+   ignorable in theory; in practice it turns misspecification into bias.
+2. **The unlabeled detector counts make the joint generative model confidently wrong
+   when it is misspecified; the cut model is robust.** With duplicate detections
+   (`synth_double_count`, SRS) the joint model is biased +14% at n = 25 with coverage 0.07;
+   the cut model, which uses the same model but only p(f | g), is unbiased with coverage
+   0.88. Same direction on `synth_zero_inflated` (+7.7% vs +1.1%) and under PPS on
+   `synth_crowding` and `fish`. When the model is right the joint model is the most
+   efficient estimator (smallest RMSE on `synth_well_specified`, and the narrowest
+   intervals under PPS).
+3. **The Poisson GLM behaves like a GREG estimator under SRS; the NegBin GLM does not.**
+   On `synth_zero_inflated` (SRS) the Poisson GLM's bias shrinks from +28% at n = 10 to
+   +2% at n = 100 although the model is wrong; the NegBin GLM (non-canonical link) stays
+   at +16%. The Poisson GLM's *intervals* are still model-based and undercover when the
+   model is wrong (0.66–0.86 on `synth_crowding` and `synth_zero_inflated`); on `fish` and
+   `rays` they are conservative (0.94–1.00).
+4. **Design-based intervals undercover at small n.** At n = 10, sample-mean and PPI
+   intervals cover 0.79–0.91 and PPI++ 0.69–0.85 (nominal 0.90); by n = 25–50 they are
+   close to nominal. PPI is *worse* than labels-only on `rays` because the detector is
+   badly calibrated there (f − g has more variance than f); PPI++ fixes that.
+5. **The population max is only as good as the model's tails.** The generative models
+   cover the max when they are well specified (1.00 on `synth_well_specified` and
+   `synth_zero_inflated`), but under SRS coverage is near 0 on `rays` (true max 4, predicted 6–8) and
+   0.43–0.62 on `fish` for the generative models. No method here is a reliable max estimator on real data.
+
+MCMC: fewer than 4% of fits have R-hat > 1.05. The cut generative model on
+`synth_zero_inflated` has a few divergent transitions in most fits (median 3 of 1000
+draws), a sign that its posterior is weakly identified without the marginal likelihood.
 
 ## Datasets we would like to add
 
