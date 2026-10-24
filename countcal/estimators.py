@@ -124,7 +124,7 @@ def _posterior_interval(draws: np.ndarray) -> dict:
 
 
 def fit_model(method: str, f, g, s: Sample, seed: int, chains: int = 4, iter_warmup: int = 500,
-              iter_sampling: int = 500) -> dict:
+              iter_sampling: int = 500, adapt_delta: float | None = None) -> dict:
     """Fit one model-based estimator. Returns {"mean": interval, "max": interval, "diag": {...}}."""
     model_name, extra = MODEL_BASED[method]
     model = stan_model(model_name)
@@ -133,7 +133,8 @@ def fit_model(method: str, f, g, s: Sample, seed: int, chains: int = 4, iter_war
     try:
         fit = model.sample(
             data=data, seed=seed, chains=chains, parallel_chains=1, iter_warmup=iter_warmup,
-            iter_sampling=iter_sampling, show_progress=False, show_console=False, output_dir=out_dir,
+            iter_sampling=iter_sampling, adapt_delta=adapt_delta, show_progress=False, show_console=False,
+            output_dir=out_dir,
         )
         mean_draws = fit.stan_variable("mean_f")
         max_draws = fit.stan_variable("max_f")
